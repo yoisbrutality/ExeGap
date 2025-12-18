@@ -7,7 +7,7 @@ __version__ = "3.0.0"
 __author__ = "ExeGap Development Team"
 __license__ = "MIT"
 __description__ = "Advanced PE Binary Analysis & Decompilation Suite"
-__url__ = "https://github.com/exegap/exegap"
+__url__ = "https://github.com/yoisbrutality/ExeGap"
 
 VERSION_INFO = {
     "major": 3,
@@ -45,4 +45,5 @@ print(f"""
 ║                    EXEGAP {__version__}                        ║
 ║         Advanced PE Binary Analysis & Decompilation Suite         ║
 ╚═════════════════════════════════════════════════════════════════════╝
+
 """)
