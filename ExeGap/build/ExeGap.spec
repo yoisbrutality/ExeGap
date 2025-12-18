@@ -1,4 +1,4 @@
-# -*- mode: python ; encoding: utf-8 -*-
+# -*- mode: python ; coding: utf-8 -*-
 """
 PyInstaller Specification for ExeGap
 Creates professional standalone executable
@@ -65,3 +65,4 @@ coll = COLLECT(
     name='ExeGap'
 
 )
+
