@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+
+# Please report me any type of build error.
+
 """
 ExeGap Installation and Build Script
 Installs dependencies and builds the executable
@@ -40,7 +43,8 @@ def main():
     print("[+] Dependencies installed successfully!")
 
     print("\n[*] Building standalone executable...")
-    de: python ; coding: utf-8 -*-
+    
+    spec_content = '''# -*- coding: utf-8 -*-
 import sys
 from PyInstaller.utils.hooks import collect_submodules
 
@@ -112,13 +116,12 @@ coll = COLLECT(
         f.write(spec_content)
     
     print(f"[+] Created spec file: {spec_file}")
-    
-    # Run PyInstaller
+
     cmd = f'"{python_exe}" -m PyInstaller {spec_file} --distpath dist --buildpath build_temp'
+    if not run_command(cmd, "Building executable with PyInstaller"):
         print("[!] PyInstaller build failed")
         sys.exit(1)
-    
-    # Move executable to appropriate location
+
     exe_path = "dist/ExeGap/ExeGap.exe"
     final_exe = "ExeGap.exe"
     if os.path.exists(exe_path):
@@ -138,8 +141,7 @@ coll = COLLECT(
             print(f"[+] Found executables: {exe_files}")
             shutil.copy(exe_files[0], final_exe)
             print(f"[+] Copied to: {final_exe}")
-    
-    # Cleanup
+
     for temp_dir in ["build_temp", ".pyinstaller"]:
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
