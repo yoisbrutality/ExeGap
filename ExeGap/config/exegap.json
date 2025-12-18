@@ -1,0 +1,34 @@
+{
+  "application": {
+    "name": "ExeGap",
+    "version": "3.0.0",
+    "description": "Advanced PE Binary Analysis & Decompilation Suite",
+    "author": "ExeGap Development Team",
+    "license": "MIT"
+  },
+  "analysis": {
+    "carve_files": true,
+    "extract_strings": true,
+    "detect_packing": true,
+    "analyze_dotnet": true,
+    "check_imports": true,
+    "deep_scan": true,
+    "entropy_threshold": 7.5
+  },
+  "output": {
+    "directory": "analysis_results",
+    "formats": ["json", "html", "csv"],
+    "save_carved_files": true,
+    "verbose": true
+  },
+  "ui": {
+    "theme": "dark",
+    "port": 5000,
+    "max_file_size_mb": 500
+  },
+  "performance": {
+    "max_workers": 8,
+    "chunk_size": 1048576,
+    "timeout_seconds": 300
+  }
+}

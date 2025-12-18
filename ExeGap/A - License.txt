@@ -1,0 +1,80 @@
+(EN-US):
+
+ExeGap License Agreement
+Decompilation & General .exe Files Examiner.
+Copyright (©) 2025 yois (Owner of the project.)
+
+1. Permission to Use
+This project, named ExeGap, is provided as open-source but with clear restrictions on modification, redistribution, and commercialization. You are allowed to use this code solely for non-commercial purposes and without altering its contents.
+
+2. Granted Rights
+You are permitted to:
+
+Study the code and learn from it.
+
+Use the code in personal, non-commercial projects, without modifying its structure.
+
+3. Restrictions
+The following actions are strictly prohibited:
+
+Distributing or sharing this project or its source code without the express permission of the author.
+
+Modifying the source code or any component of ExeGap to create derivative works.
+
+Replacing or altering the project’s authorship, particularly the name "ExeGap" and the author "yois".
+
+Selling or commercially exploiting this project in any way without prior authorization from the author.
+
+4. Intellectual Property
+This project is the property of yois. You may not claim authorship or use the project’s name in a manner that could cause confusion about the ownership. Unauthorized use of the project’s name or code may result in legal action.
+
+5. Contributions
+Any contributions to the project, including improvements or bug fixes, must comply with this license. The acceptance of contributions will be reviewed and decided at the discretion of the author.
+
+6. Credit Display
+In all versions of ExeGap, whether original or modified, the following credit must be maintained:
+"ExeGap - Decompiler and General .exe Examiner" - Project by yois
+
+7. Disclaimer
+This project is provided "as is", without any warranties, either express or implied. The author is not responsible for any direct or indirect damages resulting from the use of this code.
+
+------------------------------------------------------------------------------------------
+(PT-BR):
+
+Contrato de Licença ExeGap
+Decompilação e Analisador Geral de Arquivos .exe
+Copyright (©) 2025 yois (Proprietário do projeto.)
+
+1. Permissão de Uso
+Este projeto, denominado ExeGap, é disponibilizado como código aberto, mas com restrições claras quanto à modificação, redistribuição e comercialização. Você pode usar este código apenas para fins não comerciais e sem modificar seu conteúdo.
+
+2. Direitos Concedidos
+Você tem permissão para:
+
+Estudar o código e aprender com ele.
+
+Usar o código em projetos pessoais e não comerciais, sem modificar sua estrutura.
+
+3. Restrições
+É terminantemente proibido:
+
+Distribuir ou compartilhar este projeto ou seu código-fonte sem permissão expressa do autor.
+
+Modificar o código-fonte ou qualquer componente do ExeGap, criando versões derivadas.
+
+Substituir ou alterar a autoria do projeto, nomeadamente o nome "ExeGap" e a autoria de "yois".
+
+Vender ou comercializar este projeto de qualquer forma, sem a autorização prévia do autor.
+
+4. Propriedade Intelectual
+Este projeto é de propriedade de yois. Não é permitido reivindicar a autoria ou utilizar o nome do projeto de forma que possa gerar confusão sobre a autoria. O uso indevido do nome ou do código poderá resultar em medidas legais.
+
+5. Contribuições
+Qualquer contribuição ao projeto, incluindo melhorias ou correções, deve ser feita em conformidade com esta licença. A aceitação de contribuições será analisada e decidida pelo autor.
+
+6. Exibição do Crédito
+Em todas as versões do ExeGap, seja original ou modificada, deve-se manter a seguinte atribuição:
+"ExeGap - Decompilador e Examinador Geral de .exe" - Projeto de yois
+
+7. Isenção de Garantias
+Este projeto é fornecido "como está", sem garantias de qualquer tipo, expressas ou implícitas. O autor não se responsabiliza por danos diretos ou indiretos decorrentes do uso deste código.
