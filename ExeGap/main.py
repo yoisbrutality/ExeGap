@@ -106,6 +106,7 @@ Examples:
             help="Number of parallel workers"
         )
         
+        gui_parser = subparsers.add_parser("gui", help="Launch GUI")
         gui_parser.add_argument(
             "--theme",
             choices=["dark", "light"],
@@ -113,6 +114,7 @@ Examples:
             help="UI theme"
         )
         
+        dashboard_parser = subparsers.add_parser("dashboard", help="Launch web dashboard")
         dashboard_parser.add_argument(
             "--port",
             type=int,
@@ -124,7 +126,8 @@ Examples:
             action="store_true",
             help="Enable debug mode"
         )
-
+        
+        report_parser = subparsers.add_parser("report", help="Generate report")
         report_parser.add_argument("output", help="Output report file")
         report_parser.add_argument(
             "--format",
@@ -177,11 +180,12 @@ Examples:
         try:
             with open(args.file, 'rb') as f:
                 binary_data = f.read()
-            Analyzer(args.file)
+            analyzer = PEAnalyzer(args.file)
             pe_analysis = analyzer.get_full_analysis()
             
             logger.info("Running security analysis...")
             security_analyzer = SecurityAnalyzer(analyzer.pe)
+            security_analysis = security_analyzer.get_full_security_report()
             
             results = {
                 "file": args.file,
@@ -192,32 +196,34 @@ Examples:
             
             if args.dotnet:
                 logger.info("Running .NET analysis...")
+                dotnet = DotNetHandler(args.file)
                 if dotnet.is_dotnet_assembly():
                     results["dotnet_analysis"] = dotnet.get_full_analysis()
 
+            if args.carve:
                 logger.info("Carving embedded files...")
                 carver = FileCarver(binary_data, os.path.join(args.out, "carved"))
                 results["carved_files"] = carver.get_summary()
 
+            if args.config:
                 logger.info("Extracting configuration and secrets...")
+                config_extractor = ConfigExtractor(args.file)
                 config_extractor.extract_from_binary(binary_data)
                 results["configuration_extraction"] = config_extractor.get_report()
-
-                if iocs:
-                    with open(ioc_file, 'w') as f:
-                        json.dump(iocs, f, indent=2)
-                    logger.info(f"IOCs exported to: {ioc_file}")
             
+            output_file = os.path.join(args.out, "analysis_report.json")
             with open(output_file, 'w') as f:
+                json.dump(results, f, indent=2)
             
             logger.info(f"Analysis saved to: {output_file}")
+            
+            gen = ReportGenerator(results, args.out)
             
             if args.format in ["html", "all"]:
                 gen.to_html("analysis_report.html")
             
             if args.format in ["csv", "all"]:
                 logger.info("Generating CSV report...")
-                gen = ReportGenerator(results, args.out)
                 gen.to_csv("analysis_report.csv")
             
             logger.info("Analysis complete!")
@@ -248,13 +254,16 @@ Examples:
                 executor.submit(self._analyze_file, str(f), args.out): f
                 for f in files
             }
-            executor.submit(self._analyze_file, str(f), args.out): f for f in files        result = future.result()
+            for i, future in enumerate(concurrent.futures.as_completed(futures), 1):
+                try:
+                    result = future.result()
                     results.append(result)
                     logger.info(f"[{i}/{len(files)}] Completed: {Path(result['file']).name}")
                 except Exception as e:
                     logger.error(f"Error processing file: {e}")
         
         batch_report = os.path.join(args.out, "batch_report.json")
+        with open(batch_report, 'w') as f:
             json.dump({"total": len(files), "analyzed": len(results), "results": results}, f, indent=2, default=str)
         
         logger.info(f"Batch analysis complete! Report: {batch_report}")
@@ -407,4 +416,5 @@ def main():
     sys.exit(cli.run())
 
 
-if _main()
+if __name__ == "__main__":
+    main()
