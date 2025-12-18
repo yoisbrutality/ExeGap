@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Please report me any type of build error.
+# Please report me any build error
 
 """
 ExeGap Installation and Build Script
@@ -11,6 +11,10 @@ import sys
 import os
 import shutil
 import platform
+
+if sys.stdout.encoding.lower() != 'utf-8':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 def run_command(cmd, description=""):
     if description:
@@ -117,7 +121,7 @@ coll = COLLECT(
     
     print(f"[+] Created spec file: {spec_file}")
 
-    cmd = f'"{python_exe}" -m PyInstaller {spec_file} --distpath dist --buildpath build_temp'
+    cmd = f'"{python_exe}" -m PyInstaller {spec_file} --distpath dist --workpath build_temp'
     if not run_command(cmd, "Building executable with PyInstaller"):
         print("[!] PyInstaller build failed")
         sys.exit(1)
