@@ -3,8 +3,8 @@
     "name": "ExeGap",
     "version": "3.0.0",
     "description": "Advanced PE Binary Analysis & Decompilation Suite",
-    "author": "ExeGap Development Team",
-    "license": "MIT"
+    "author": "yois",
+    "license": "Personal Rights"
   },
   "analysis": {
     "carve_files": true,
@@ -31,4 +31,5 @@
     "chunk_size": 1048576,
     "timeout_seconds": 300
   }
+
 }
