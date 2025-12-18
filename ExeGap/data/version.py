@@ -4,8 +4,8 @@ ExeGap Version Information and Metadata
 
 __title__ = "ExeGap"
 __version__ = "3.0.0"
-__author__ = "ExeGap Development Team"
-__license__ = "MIT"
+__author__ = "yois"
+__license__ = ""
 __description__ = "Advanced PE Binary Analysis & Decompilation Suite"
 __url__ = "https://github.com/yoisbrutality/ExeGap"
 
@@ -47,3 +47,4 @@ print(f"""
 ╚═════════════════════════════════════════════════════════════════════╝
 
 """)
+
