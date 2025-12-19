@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Please report me any build errors
 
+# Please report me any build errors
 
 """
 ExeGap Installation and Build Script
@@ -30,7 +30,7 @@ def run_command(cmd, description=""):
 def main():
     print("""
     ╔═════════════════════════════════════════════════════════════════╗
-    ║           EXEGAP 3.0.0 - Installation & Build Script           ║
+    ║           EXEGAP 3.0.1 - Installation & Build Script           ║
     ║      Advanced PE Binary Analysis & Decompilation Suite         ║
     ╚═════════════════════════════════════════════════════════════════╝
     """)
