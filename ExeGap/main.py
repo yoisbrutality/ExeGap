@@ -126,7 +126,7 @@ Examples:
             action="store_true",
             help="Enable debug mode"
         )
-        
+
         report_parser = subparsers.add_parser("report", help="Generate report")
         report_parser.add_argument("output", help="Output report file")
         report_parser.add_argument(
@@ -180,12 +180,11 @@ Examples:
         try:
             with open(args.file, 'rb') as f:
                 binary_data = f.read()
-            analyzer = PEAnalyzer(args.file)
+            Analyzer(args.file)
             pe_analysis = analyzer.get_full_analysis()
             
             logger.info("Running security analysis...")
             security_analyzer = SecurityAnalyzer(analyzer.pe)
-            security_analysis = security_analyzer.get_full_security_report()
             
             results = {
                 "file": args.file,
@@ -196,34 +195,33 @@ Examples:
             
             if args.dotnet:
                 logger.info("Running .NET analysis...")
-                dotnet = DotNetHandler(args.file)
                 if dotnet.is_dotnet_assembly():
                     results["dotnet_analysis"] = dotnet.get_full_analysis()
 
-            if args.carve:
                 logger.info("Carving embedded files...")
                 carver = FileCarver(binary_data, os.path.join(args.out, "carved"))
                 results["carved_files"] = carver.get_summary()
 
-            if args.config:
                 logger.info("Extracting configuration and secrets...")
-                config_extractor = ConfigExtractor(args.file)
                 config_extractor.extract_from_binary(binary_data)
                 results["configuration_extraction"] = config_extractor.get_report()
+
+                if iocs:
+                    with open(ioc_file, 'w') as f:
+                        json.dump(iocs, f, indent=2)
+                    logger.info(f"IOCs exported to: {ioc_file}")
             
-            output_file = os.path.join(args.out, "analysis_report.json")
             with open(output_file, 'w') as f:
                 json.dump(results, f, indent=2)
             
             logger.info(f"Analysis saved to: {output_file}")
-            
-            gen = ReportGenerator(results, args.out)
             
             if args.format in ["html", "all"]:
                 gen.to_html("analysis_report.html")
             
             if args.format in ["csv", "all"]:
                 logger.info("Generating CSV report...")
+                gen = ReportGenerator(results, args.out)
                 gen.to_csv("analysis_report.csv")
             
             logger.info("Analysis complete!")
