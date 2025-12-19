@@ -3,10 +3,9 @@
 Web Dashboard for EXE Decompiler Analysis Results
 Flask-based visualization interface
 """
-import flask
+from flask import Flask, render_template_string, request, send_file, jsonify
 import json
 import os
-from flask import Flask, render_template_string, request, send_file, jsonify
 from pathlib import Path
 import hashlib
 
@@ -86,163 +85,65 @@ DASHBOARD_TEMPLATE = """
         }
         
         .stat {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 0;
-            border-bottom: 1px solid #f0f0f0;
-        }
-        
-        .stat label {
-            font-weight: 600;
-            color: #333;
-        }
-        
-        .stat value {
+            font-size: 2.5em;
             color: #667eea;
-            font-family: 'Courier New', monospace;
-        }
-        
-        .security-alert {
-            background: #fff3cd;
-            border-left: 4px solid #ffc107;
-            padding: 15px;
             margin: 10px 0;
-            border-radius: 5px;
-        }
-        
-        .security-alert.danger {
-            background: #f8d7da;
-            border-left-color: #dc3545;
-        }
-        
-        .security-alert.success {
-            background: #d4edda;
-            border-left-color: #28a745;
-        }
-        
-        .import-list {
-            max-height: 300px;
-            overflow-y: auto;
-            background: #f9f9f9;
-            padding: 10px;
-            border-radius: 5px;
-        }
-        
-        .import-item {
-            padding: 8px;
-            margin: 5px 0;
-            background: white;
-            border-left: 3px solid #667eea;
-            font-family: 'Courier New', monospace;
-            font-size: 0.9em;
-        }
-        
-        .import-item.suspicious {
-            border-left-color: #dc3545;
-            color: #dc3545;
-        }
-        
-        .import-item.category-process {
-            border-left-color: #ff6b6b;
-        }
-        
-        .import-item.category-injection {
-            border-left-color: #ee5a6f;
-        }
-        
-        .import-item.category-memory {
-            border-left-color: #f06595;
-        }
-        
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        
-        .full-width {
-            grid-column: 1 / -1;
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 15px;
-        }
-        
-        th {
-            background: #f5f5f5;
-            padding: 12px;
-            text-align: left;
-            font-weight: 600;
-            color: #333;
-            border-bottom: 2px solid #ddd;
-        }
-        
-        td {
-            padding: 12px;
-            border-bottom: 1px solid #eee;
-        }
-        
-        tr:hover {
-            background: #f9f9f9;
-        }
-        
-        .hash-value {
-            font-family: 'Courier New', monospace;
-            font-size: 0.85em;
-            word-break: break-all;
-            color: #666;
         }
         
         .tag {
             display: inline-block;
+            background: #eee;
+            padding: 5px 10px;
+            border-radius: 20px;
+            margin: 5px 5px 0 0;
+            font-size: 0.85em;
+            color: #666;
+        }
+        
+        .success { background: #e6ffe6; color: #388e3c; }
+        .warning { background: #fff4e6; color: #f57c00; }
+        .danger { background: #ffe6e6; color: #d32f2f; }
+        
+        #upload-section {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        
+        #file-input {
+            display: none;
+        }
+        
+        .upload-btn {
             background: #667eea;
             color: white;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.85em;
-            margin: 3px;
+            padding: 12px 25px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
         }
         
-        .tag.danger {
-            background: #dc3545;
+        .upload-btn:hover {
+            background: #764ba2;
         }
         
-        .tag.warning {
-            background: #ffc107;
-            color: #333;
-        }
-        
-        .tag.success {
-            background: #28a745;
-        }
-        
-        .progress-bar {
-            height: 8px;
-            background: #e9ecef;
-            border-radius: 4px;
+        #progress {
+            margin-top: 20px;
+            height: 5px;
+            background: #eee;
+            border-radius: 5px;
             overflow: hidden;
-            margin: 10px 0;
         }
         
-        .progress-fill {
+        #progress-bar {
             height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            transition: width 0.3s ease;
-        }
-        
-        @media (max-width: 768px) {
-            .dashboard {
-                grid-template-columns: 1fr;
-            }
-            .grid-2 {
-                grid-template-columns: 1fr;
-            }
-            h1 {
-                font-size: 1.8em;
-            }
+            width: 0;
+            background: #667eea;
+            transition: width 0.3s;
         }
     </style>
 </head>
@@ -250,151 +151,79 @@ DASHBOARD_TEMPLATE = """
     <div class="container">
         <header>
             <h1>🔍 EXE Decompiler Dashboard</h1>
-            <p class="subtitle">Advanced Binary Analysis & Extraction Suite</p>
+            <p class="subtitle">Professional binary analysis & visualization suite</p>
         </header>
         
-        <div class="dashboard" id="dashboard">
-            <div class="card">
-                <h3>📊 Binary Information</h3>
-                <div class="stat">
-                    <label>Filename:</label>
-                    <value id="filename">-</value>
-                </div>
-                <div class="stat">
-                    <label>File Size:</label>
-                    <value id="filesize">-</value>
-                </div>
-                <div class="stat">
-                    <label>MD5 Hash:</label>
-                </div>
-                <value class="hash-value" id="md5">-</value>
-                <div class="stat" style="margin-top: 10px;">
-                    <label>SHA256:</label>
-                </div>
-                <value class="hash-value" id="sha256">-</value>
-            </div>
-            
-            <div class="card">
-                <h3>🛡️ Security Analysis</h3>
-                <div id="security-findings"></div>
-            </div>
-            
-            <div class="card">
-                <h3>⚙️ System Info</h3>
-                <div class="stat">
-                    <label>Machine:</label>
-                    <value id="machine">-</value>
-                </div>
-                <div class="stat">
-                    <label>Sections:</label>
-                    <value id="sections">-</value>
-                </div>
-                <div class="stat">
-                    <label>.NET Assembly:</label>
-                    <value id="dotnet">No</value>
-                </div>
-            </div>
-            
-            <div class="card full-width">
-                <h3>📦 Extracted Resources</h3>
-                <div id="resources-info"></div>
-            </div>
-            
-            <div class="card full-width">
-                <h3>🔗 Imported APIs</h3>
-                <div id="imports-summary"></div>
-                <div class="import-list" id="imports-list"></div>
-            </div>
-            
-            <div class="card full-width">
-                <h3>📄 String Intelligence</h3>
-                <div id="string-intel"></div>
-            </div>
+        <div id="upload-section">
+            <label for="file-input" class="upload-btn">📤 Upload Binary for Analysis</label>
+            <input type="file" id="file-input" accept=".exe,.dll">
+            <div id="progress"><div id="progress-bar"></div></div>
         </div>
+        
+        <div class="dashboard" id="dashboard"></div>
     </div>
     
     <script>
-        async function loadAnalysis() {
+        const fileInput = document.getElementById('file-input');
+        const progressBar = document.getElementById('progress-bar');
+        const dashboard = document.getElementById('dashboard');
+        
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
             try {
-                const response = await fetch('/api/analysis');
-                const data = await response.json();
+                progressBar.style.width = '20%';
                 
-                if (data.error) {
-                    document.getElementById('dashboard').innerHTML = '<div class="card full-width"><h3>Error</h3><p>' + data.error + '</p></div>';
-                    return;
-                }
-                
-                displayAnalysis(data);
-            } catch (e) {
-                console.error('Failed to load analysis:', e);
-            }
-        }
-        
-        function displayAnalysis(data) {
-            document.getElementById('filename').textContent = data.basic_info?.filename || '-';
-            document.getElementById('filesize').textContent = (data.basic_info?.size || 0).toLocaleString() + ' bytes';
-            document.getElementById('md5').textContent = data.basic_info?.md5 || '-';
-            document.getElementById('sha256').textContent = data.basic_info?.sha256 || '-';
-            document.getElementById('machine').textContent = data.basic_info?.machine || '-';
-            document.getElementById('sections').textContent = data.basic_info?.sections || '-';
-            document.getElementById('dotnet').textContent = data.basic_info?.is_dotnet ? 'Yes' : 'No';
-            
-            const secDiv = document.getElementById('security-findings');
-            if (data.security?.packed) {
-                secDiv.innerHTML = '<div class="security-alert danger">⚠️ Binary appears to be packed</div>';
-                secDiv.innerHTML += '<p><strong>Suspicious sections:</strong></p>';
-                data.security?.suspicious_sections?.forEach(sec => {
-                    secDiv.innerHTML += '<span class="tag danger">' + sec + '</span>';
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    body: formData
                 });
-            } else {
-                secDiv.innerHTML = '<div class="security-alert success">✓ No packing detected</div>';
-            }
-            
-            const resDiv = document.getElementById('resources-info');
-            const resCount = data.resources?.total || 0;
-            resDiv.innerHTML = '<p><strong>' + resCount + '</strong> resources extracted</p>';
-
-            const impsDiv = document.getElementById('imports-summary');
-            if (data.imports) {
-                const impCount = Object.keys(data.imports).length;
-                impsDiv.innerHTML = '<p><strong>' + impCount + '</strong> DLLs imported</p>';
                 
-                const impList = document.getElementById('imports-list');
-                let html = '';
-                for (const [dll, apis] of Object.entries(data.imports)) {
-                    html += '<div class="import-item"><strong>' + dll + '</strong> (' + apis.length + ' APIs)</div>';
-                    apis.slice(0, 3).forEach(api => {
-                        html += '<div class="import-item" style="margin-left: 20px; border-left-color: #ccc;">→ ' + api + '</div>';
-                    });
-                    if (apis.length > 3) {
-                        html += '<div class="import-item" style="margin-left: 20px; border-left-color: #ccc; color: #999;">... and ' + (apis.length - 3) + ' more</div>';
-                    }
+                progressBar.style.width = '60%';
+                
+                if (!response.ok) {
+                    throw new Error('Analysis failed');
                 }
-                impList.innerHTML = html;
+                
+                const data = await response.json();
+                progressBar.style.width = '100%';
+                renderDashboard(data);
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                setTimeout(() => progressBar.style.width = '0%', 1000);
             }
-
-            const strDiv = document.getElementById('string-intel');
-            if (data.strings?.intelligence) {
-                const intel = data.strings.intelligence;
-                let html = '<p><strong>Extracted Intelligence:</strong></p>';
-                if (intel.urls?.length > 0) {
-                    html += '<p><strong>URLs found:</strong></p>';
-                    intel.urls.slice(0, 5).forEach(url => {
-                        html += '<span class="tag warning">' + url + '</span>';
-                    });
-                }
-                if (intel.ips?.length > 0) {
-                    html += '<p style="margin-top: 10px;"><strong>IPs found:</strong></p>';
-                    intel.ips.slice(0, 5).forEach(ip => {
-                        html += '<span class="tag warning">' + ip + '</span>';
-                    });
-                }
-                strDiv.innerHTML = html;
-            }
-        }
+        });
         
-        loadAnalysis();
-        setInterval(loadAnalysis, 5000);
+        function renderDashboard(data) {
+            dashboard.innerHTML = '';
+            
+            // Metadata Card
+            const metaCard = document.createElement('div');
+            metaCard.className = 'card';
+            metaCard.innerHTML = `
+                <h3>📋 Binary Metadata</h3>
+                <p><strong>File:</strong> ${data.file || 'Unknown'}</p>
+                <p><strong>Size:</strong> ${(data.size / 1024).toFixed(2)} KB</p>
+                <p><strong>MD5:</strong> ${data.md5 || 'N/A'}</p>
+            `;
+            dashboard.appendChild(metaCard);
+            
+            // Security Card
+            const secCard = document.createElement('div');
+            secCard.className = 'card';
+            const packed = data.security?.packed ? 'danger' : 'success';
+            secCard.innerHTML = `
+                <h3>🛡️ Security Analysis</h3>
+                <span class="tag ${packed}">Packed: ${data.security?.packed ? 'Yes' : 'No'}</span>
+                <p><strong>Risk Level:</strong> ${data.security?.risk_level || 'Low'}</p>
+            `;
+            dashboard.appendChild(secCard);
+        }
     </script>
 </body>
 </html>
