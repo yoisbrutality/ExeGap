@@ -42,9 +42,18 @@ class ConfigManager:
         """Load configuration from file"""
         try:
             with open(self.config_file, 'r') as f:
-                self.config.update(json.load(f))
+                loaded = json.load(f)
+                self._merge_dict(self.config, loaded)
         except Exception as e:
             logger.warning(f"Failed to load config: {e}")
+    
+    def _merge_dict(self, target: Dict, source: Dict):
+        """Recursive dict merge"""
+        for key, value in source.items():
+            if isinstance(value, dict) and key in target and isinstance(target[key], dict):
+                self._merge_dict(target[key], value)
+            else:
+                target[key] = value
     
     def save_config(self):
         """Save configuration to file"""
@@ -65,7 +74,9 @@ class ConfigManager:
         
         for k in keys:
             if isinstance(value, dict):
-                value = value.get(k, default)
+                value = value.get(k)
+                if value is None:
+                    return default
             else:
                 return default
         
@@ -141,37 +152,41 @@ class ReportGenerator:
                 .header {
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                     color: white;
-                    padding: 30px;
+                    padding: 40px 30px;
                     text-align: center;
                 }
                 .header h1 {
-                    font-size: 2.5em;
+                    font-size: 32px;
                     margin-bottom: 10px;
+                }
+                .header p {
+                    font-size: 18px;
+                    opacity: 0.9;
                 }
                 .content {
                     padding: 30px;
                 }
                 .section {
-                    margin-bottom: 30px;
-                    border-left: 4px solid #667eea;
-                    padding-left: 20px;
+                    margin-bottom: 40px;
                 }
-                .section h2 {
+                h2 {
                     color: #667eea;
-                    margin-bottom: 15px;
-                    font-size: 1.8em;
+                    font-size: 24px;
+                    margin-bottom: 20px;
+                    border-bottom: 2px solid #eee;
+                    padding-bottom: 10px;
                 }
                 .info-grid {
                     display: grid;
                     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
                     gap: 20px;
-                    margin-bottom: 20px;
                 }
                 .info-card {
                     background: #f8f9fa;
-                    padding: 15px;
-                    border-radius: 5px;
-                    border-left: 3px solid #667eea;
+                    padding: 20px;
+                    border-radius: 8px;
+                    border-left: 4px solid #667eea;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
                 }
                 .info-card strong {
                     color: #667eea;
@@ -225,31 +240,44 @@ class ReportGenerator:
         """
         
         if "metadata" in self.analysis:
-            html += "<div class='section'><h2>📋 File Metadata</h2>"
-            html += "<div class='info-grid'>"
+            html += '<div class="section"><h2>📋 File Metadata</h2>'
+            html += '<div class="info-grid">'
             for key, value in self.analysis["metadata"].items():
                 if key not in ["characteristics"]:
-                    html += f"<div class='info-card'><strong>{key}:</strong> {value}</div>"
-            html += "</div></div>"
+                    html += f'<div class="info-card"><strong>{key.capitalize()}:</strong> {str(value)}</div>'
+            html += '</div></div>'
         
-        if "packing_analysis" in self.analysis:
-            packing = self.analysis["packing_analysis"]
-            risk_class = f"risk-{packing.get('risk_level', 'low')}"
-            html += f"<div class='section'><h2>🛡️ Security Analysis</h2>"
-            html += f"<div class='info-card {risk_class}'>"
-            html += f"<strong>Packing Status:</strong> {'Detected' if packing.get('packed') else 'Not Detected'}<br>"
-            html += f"<strong>Risk Level:</strong> {packing.get('risk_level', 'Unknown').upper()}<br>"
-            html += "</div></div>"
+        if "pe_analysis" in self.analysis:
+            html += '<div class="section"><h2>📁 PE Analysis</h2>'
+            html += '<table><tr><th>Property</th><th>Value</th></tr>'
+            for key, value in self.analysis["pe_analysis"].items():
+                html += f'<tr><td>{key.capitalize()}</td><td>{json.dumps(value, default=str)}</td></tr>'
+            html += '</table></div>'
+        
+        if "security_analysis" in self.analysis:
+            security = self.analysis["security_analysis"]
+            risk_level = security.get("overall_risk", "low")
+            risk_class = f"risk-{risk_level}"
+            html += f'<div class="section"><h2>🛡️ Security Analysis</h2>'
+            html += f'<div class="info-card {risk_class}">'
+            html += f'<strong>Risk Level:</strong> {risk_level.upper()}<br>'
+            html += f'<strong>Score:</strong> {security.get("risk_score", 0)}<br>'
+            html += '</div>'
+            html += '<table><tr><th>Category</th><th>Details</th></tr>'
+            for key, value in security.items():
+                html += f'<tr><td>{key.capitalize()}</td><td>{json.dumps(value, default=str)}</td></tr>'
+            html += '</table></div>'
         
         html += """
                 </div>
                 <div class="footer">
                     <p>Generated by ExeGap - Advanced Binary Analysis Suite</p>
+                    <p>Timestamp: {datetime.now().isoformat()}</p>
                 </div>
             </div>
         </body>
         </html>
-        """
+        """.format(datetime=datetime)
         
         return html
     
@@ -260,9 +288,16 @@ class ReportGenerator:
         
         try:
             with open(output_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=self.analysis.get("metadata", {}).keys())
-                writer.writeheader()
-                writer.writerow(self.analysis.get("metadata", {}))
+                writer = csv.writer(f)
+                writer.writerow(["Category", "Key", "Value"])
+                
+                if "metadata" in self.analysis:
+                    for key, value in self.analysis["metadata"].items():
+                        writer.writerow(["Metadata", key, str(value)])
+                
+                if "security" in self.analysis:
+                    for key, value in self.analysis["security"].items():
+                        writer.writerow(["Security", key, json.dumps(value, default=str)])
             
             logger.info(f"CSV report saved: {output_path}")
             return output_path
