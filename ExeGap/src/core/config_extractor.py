@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""
-Advanced Config & Secret Extractor Module
-Extracts configuration, credentials, and secrets from binaries
-Consolidates functionality from config_extractor.py
-"""
 import re
 import json
 import hashlib
 import logging
+import math
 from typing import List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass, asdict
 from collections import defaultdict
@@ -39,186 +35,42 @@ class ConfigExtractor:
             "category": "API Credentials",
             "confidence": 0.95
         },
-        "password": {
-            "patterns": [
-                r"(?i)(password|passwd|pwd|pass)[\s:=]+['\"]?([A-Za-z0-9!@#$%^&*\-_]{6,})['\"]?",
-                r"(?i)(dbpassword|db_password|database_password)[\s:=]+['\"]([^\"']+)['\"]",
-                r"(?i)(admin_pass|adminpass)[\s:=]+['\"]([^\"']+)['\"]",
-            ],
-            "category": "Credentials",
-            "confidence": 0.90
-        },
-        "username": {
-            "patterns": [
-                r"(?i)(username|user|uid|email)[\s:=]+['\"]?([A-Za-z0-9.@\-_]{4,})['\"]?",
-                r"(?i)(admin|root)[\s:=]+['\"]?([A-Za-z0-9\-_]+)['\"]?",
-            ],
-            "category": "Credentials",
-            "confidence": 0.85
-        },
-        "url": {
-            "patterns": [
-                r"https?://[^\s\x00]{10,}",
-                r"ftp://[^\s\x00]{10,}",
-                r"ldap://[^\s\x00]{10,}",
-            ],
-            "category": "Network Endpoint",
-            "confidence": 0.88
-        },
-        "ip_address": {
-            "patterns": [
-                r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b",
-            ],
-            "category": "Network Address",
-            "confidence": 0.92
-        },
-        "domain": {
-            "patterns": [
-                r"(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,}",
-            ],
-            "category": "Domain Name",
-            "confidence": 0.80
-        },
-        "email": {
-            "patterns": [
-                r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}",
-            ],
-            "category": "Contact Information",
-            "confidence": 0.90
-        },
-        "phone": {
-            "patterns": [
-                r"\b(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})\b",
-            ],
-            "category": "Contact Information",
-            "confidence": 0.75
-        },
-        "bitcoin_address": {
-            "patterns": [
-                r"\b(?:bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}\b",
-            ],
-            "category": "Cryptocurrency",
-            "confidence": 0.95
-        },
-        "ethereum_address": {
-            "patterns": [
-                r"\b0x[a-fA-F0-9]{40}\b",
-            ],
-            "category": "Cryptocurrency",
-            "confidence": 0.93
-        },
-        "private_key": {
-            "patterns": [
-                r"-----BEGIN (?:RSA|DSA|EC|OPENSSH) PRIVATE KEY-----",
-                r"-----BEGIN PRIVATE KEY-----",
-                r"-----BEGIN ENCRYPTED PRIVATE KEY-----",
-            ],
-            "category": "Cryptographic Key",
-            "confidence": 0.99
-        },
-        "aws_access_key": {
-            "patterns": [
-                r"AKIA[0-9A-Z]{16}",
-            ],
-            "category": "Cloud Credentials",
-            "confidence": 0.98
-        },
-        "connection_string": {
-            "patterns": [
-                r"(?i)(server|host)[\s:=]+['\"]?([A-Za-z0-9\-_.]+)['\"]?;(?:.*?)(?:user|uid)[\s:=]+['\"]?([A-Za-z0-9\-_]+)['\"]?",
-            ],
-            "category": "Database Config",
-            "confidence": 0.90
-        },
-        "registry_path": {
-            "patterns": [
-                r"HKEY_(?:LOCAL_MACHINE|CURRENT_USER|CLASSES_ROOT|USERS|CURRENT_CONFIG)\\[^\x00\s]+",
-            ],
-            "category": "System Configuration",
-            "confidence": 0.85
-        },
-        "file_path": {
-            "patterns": [
-                r"(?:C:|D:|E:)\\[A-Za-z0-9\-_\\\.]+\.[A-Za-z0-9]{2,4}",
-                r"/(?:home|usr|var|etc|opt)/[A-Za-z0-9\-_/\.]+",
-            ],
-            "category": "File Path",
-            "confidence": 0.75
-        },
-        "slack_webhook": {
-            "patterns": [
-                r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9\-_]{24}",
-            ],
-            "category": "API Credentials",
-            "confidence": 0.97
-        },
-        "jwt_token": {
-            "patterns": [
-                r"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
-            ],
-            "category": "Authentication Token",
-            "confidence": 0.96
-        },
-        "generic_secret": {
-            "patterns": [
-                r"(?i)(secret|client_secret|oauth_secret)[\s:=]+['\"]?([A-Za-z0-9\-_]{20,})['\"]?",
-            ],
-            "category": "Secret",
-            "confidence": 0.85
-        },
     }
-    
-    REDACTED_PATTERNS = [
-        r"[A-Za-z0-9+/]{40,}={0,2}",
-        r"[A-Fa-f0-9]{32,}",
-    ]
-    
+
     def __init__(self):
-        """Initialize config extractor"""
         self.findings: List[SecretFinding] = []
         self.compiled_patterns = {}
-        self._compile_patterns()
-    
-    def _compile_patterns(self):
-        """Pre-compile regex patterns for performance"""
-        for pattern_type, config in self.PATTERNS.items():
-            compiled = []
-            for pattern in config["patterns"]:
-                try:
-                    compiled.append(re.compile(pattern, re.IGNORECASE | re.DOTALL))
-                except re.error as e:
-                    logger.warning(f"Failed to compile pattern {pattern_type}: {e}")
-            self.compiled_patterns[pattern_type] = (compiled, config)
-    
-    def extract_from_binary(self, data: bytes, offset: int = 0) -> List[SecretFinding]:
-        """Extract secrets from binary data"""
-        self.findings = []
+        for key, info in self.PATTERNS.items():
+            self.compiled_patterns[key] = [re.compile(p) for p in info["patterns"]]
 
-        string_data = self._extract_strings(data)
+    def extract_from_binary(self, data: bytes):
+        """Extract secrets from binary data"""
+        self.findings.clear()
+        strings_data = self._extract_strings(data)
         
-        for pattern_type, (compiled_patterns, config) in self.compiled_patterns.items():
-            for pattern in compiled_patterns:
-                try:
-                    for match in pattern.finditer(string_data):
-                        match_offset = offset + data.find(match.group(0).encode('utf-8', errors='ignore'))
-                        
-                        finding = SecretFinding(
-                            type_=pattern_type,
-                            value=match.group(0),
-                            offset=match_offset,
-                            category=config["category"],
-                            confidence=config["confidence"],
-                            context=self._get_context(string_data, match.start(), 50)
-                        )
-                        self.findings.append(finding)
-                except Exception as e:
-                    logger.debug(f"Pattern matching error for {pattern_type}: {e}")
-        
-        logger.info(f"Found {len(self.findings)} configuration/secret patterns")
-        return self.findings
-    
+        for key, patterns in self.compiled_patterns.items():
+            category = self.PATTERNS[key]["category"]
+            confidence = self.PATTERNS[key]["confidence"]
+            
+            for pattern in patterns:
+                for match in pattern.finditer(strings_data):
+                    if len(match.groups()) < 1:
+                        continue
+                    value = match.group(1)
+                    if len(value) < 6 or value.lower() in ["password", "admin"]:
+                        continue
+                    finding = SecretFinding(
+                        type_=key,
+                        value=value,
+                        offset=match.start(),
+                        category=category,
+                        confidence=confidence,
+                        context=self._get_context(strings_data, match.start(), 50)
+                    )
+                    self.findings.append(finding)
+
     def _extract_strings(self, data: bytes, min_length: int = 4) -> str:
-        """Extract readable ASCII and UTF-16 strings from binary"""
+        """Extract ASCII and Unicode strings"""
         strings = []
 
         current_string = bytearray()
@@ -230,29 +82,27 @@ class ConfigExtractor:
                     strings.append(current_string.decode('ascii', errors='ignore'))
                 current_string = bytearray()
 
-        for i in range(0, len(data) - 1, 2):
-            try:
-                char_pair = data[i:i+2]
-                if char_pair[1] == 0 and 32 <= char_pair[0] <= 126:
-                    if current_string:
-                        if len(current_string) >= min_length:
-                            strings.append(current_string.decode('utf-16-le', errors='ignore'))
-                        current_string = bytearray()
-                    current_string.append(char_pair[0])
-            except:
-                pass
-        
+        current_string = ''
+        i = 0
+        while i < len(data) - 1:
+            byte_pair = data[i:i+2]
+            if byte_pair[1] == 0 and 32 <= byte_pair[0] <= 126:
+                current_string += chr(byte_pair[0])
+            else:
+                if len(current_string) >= min_length:
+                    strings.append(current_string)
+                current_string = ''
+            i += 2
+
         return "\n".join(strings)
     
     def _get_context(self, data: str, position: int, context_len: int) -> str:
-        """Get context around matched position"""
         start = max(0, position - context_len)
         end = min(len(data), position + context_len)
         context = data[start:end]
         return context.replace('\x00', ' ').replace('\n', ' ')[:100]
     
     def extract_hardcoded_strings(self, data: bytes) -> Dict[str, List[str]]:
-        """Extract hardcoded strings by category"""
         categorized = defaultdict(list)
         
         for finding in self.findings:
@@ -265,7 +115,6 @@ class ConfigExtractor:
         return dict(categorized)
     
     def generate_iocs(self) -> Dict[str, List[str]]:
-        """Generate Indicators of Compromise from extracted data"""
         iocs = defaultdict(list)
         
         for finding in self.findings:
@@ -283,24 +132,25 @@ class ConfigExtractor:
         return dict(iocs)
     
     def calculate_entropy(self, data: bytes) -> float:
-        """Calculate Shannon entropy to detect encoded/encrypted data"""
+        """Calculate Shannon entropy correctly"""
         if not data:
             return 0.0
         
-        freq = defaultdict(int)
+        freq = [0] * 256
         for byte in data:
             freq[byte] += 1
         
         entropy = 0.0
         data_len = len(data)
-        for count in freq.values():
-            probability = count / data_len
-            entropy -= probability * (probability ** 0.5 if probability > 0 else 0)
+        for count in freq:
+            if count == 0:
+                continue
+            p = count / data_len
+            entropy -= p * math.log2(p)
         
         return entropy
     
     def get_report(self) -> Dict[str, Any]:
-        """Generate comprehensive extraction report"""
         by_category = defaultdict(list)
         for finding in self.findings:
             by_category[finding.category].append(asdict(finding))
@@ -316,14 +166,12 @@ class ConfigExtractor:
         return report
     
     def _count_by_type(self) -> Dict[str, int]:
-        """Count findings by type"""
         counts = defaultdict(int)
         for finding in self.findings:
             counts[finding.type_] += 1
         return dict(counts)
     
     def export_findings(self, format_: str = "json") -> str:
-        """Export findings in specified format"""
         if format_ == "json":
             findings_dict = [asdict(f) for f in self.findings]
             return json.dumps(findings_dict, indent=2, default=str)
@@ -341,5 +189,11 @@ class ConfigExtractor:
                     lines.append(f"\n=== {current_category.upper()} ===")
                 lines.append(f"[{hex(f.offset)}] {f.value[:80]}")
             return "\n".join(lines)
-        
+        elif format_ == "md":
+            md = "# Secret Findings\n"
+            for category, findings in defaultdict(list).items():
+                md += f"## {category}\n"
+                for f in findings:
+                    md += f"- **{f['type_']}**: {f['value']} (Confidence: {f['confidence']})\n"
+            return md
         return json.dumps([asdict(f) for f in self.findings], indent=2, default=str)
