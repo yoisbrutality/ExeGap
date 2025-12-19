@@ -1,9 +1,9 @@
 {
   "application": {
     "name": "ExeGap",
-    "version": "3.0.0",
+    "version": "3.0.1",
     "description": "Advanced PE Binary Analysis & Decompilation Suite",
-    "author": "yois",
+    "author": "brutality",
     "license": "Personal Rights"
   },
   "analysis": {
@@ -31,5 +31,4 @@
     "chunk_size": 1048576,
     "timeout_seconds": 300
   }
-
 }
