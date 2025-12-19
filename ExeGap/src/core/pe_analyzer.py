@@ -65,6 +65,7 @@ class PEAnalyzer:
     
     def _load_pe(self):
         """Load and parse PE file"""
+        try:
             with open(self.filepath, 'rb') as f:
                 self.file_data = f.read()
             self.pe = pefile.PE(self.filepath)
@@ -74,6 +75,7 @@ class PEAnalyzer:
     
     def get_metadata(self) -> PEMetadata:
         """Extract PE file metadata"""
+        if hasattr(self, 'metadata'):
             return self.metadata
         
         file_size = os.path.getsize(self.filepath)
@@ -106,6 +108,7 @@ class PEAnalyzer:
     
     def _get_characteristics(self) -> List[str]:
         """Get file characteristics"""
+        chars = []
         flags = {
             0x0001: "Relocation info stripped",
             0x0002: "Executable image",
@@ -131,6 +134,7 @@ class PEAnalyzer:
     def get_sections(self) -> List[Dict[str, Any]]:
         """Get section information"""
         sections = []
+        for section in self.pe.sections:
             section_info = {
                 "name": section.Name.decode('utf-8', errors='ignore').strip('\x00'),
                 "virtual_address": hex(section.VirtualAddress),
@@ -145,6 +149,7 @@ class PEAnalyzer:
     def get_imports(self) -> Dict[str, List[str]]:
         """Extract imported functions"""
         imports = {}
+        if hasattr(self.pe, 'DIRECTORY_ENTRY_IMPORT'):
             for dll in self.pe.DIRECTORY_ENTRY_IMPORT:
                 dll_name = dll.dll.decode('utf-8', errors='ignore')
                 imports[dll_name] = []
@@ -156,6 +161,7 @@ class PEAnalyzer:
     def get_exports(self) -> List[Dict[str, Any]]:
         """Extract exported functions"""
         exports = []
+        if hasattr(self.pe, 'DIRECTORY_ENTRY_EXPORT'):
             for i, export in enumerate(self.pe.DIRECTORY_ENTRY_EXPORT.symbols):
                 exports.append({
                     "ordinal": i + 1,
@@ -168,6 +174,7 @@ class PEAnalyzer:
         """Extract resource directory information"""
         resources = {"count": 0, "types": []}
         if hasattr(self.pe, 'DIRECTORY_ENTRY_RESOURCE'):
+            for resource_type in self.pe.DIRECTORY_ENTRY_RESOURCE.entries:
                 resource_info = {
                     "type_id": resource_type.id,
                     "name": pefile.RESOURCE_TYPE.get(resource_type.id, "Unknown"),
@@ -193,6 +200,7 @@ class PEAnalyzer:
         """Calculate Shannon entropy of section"""
         data = self.pe.get_data(section.VirtualAddress, section.SizeOfRawData)
         if not data:
+            return 0.0
         
         entropy = 0.0
         for i in range(256):
