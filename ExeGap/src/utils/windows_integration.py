@@ -29,8 +29,6 @@ class WindowsIntegration:
         try:
             try:
                 import win32api
-                import win32con
-                
                 info = win32api.GetFileVersionInfo(filepath, '\\')
                 ms = info['FileVersionMS']
                 ls = info['FileVersionLS']
@@ -67,30 +65,51 @@ class WindowsIntegration:
                 vinfo = pe.VS_FIXEDFILEINFO
                 if vinfo:
                     file_version = (vinfo[0].FileVersionMS >> 16, vinfo[0].FileVersionMS & 0xffff,
-                                   vinfo[0].FileVersionLS >> 16, vinfo[0].FileVersionLS & 0xffff)
+                                    vinfo[0].FileVersionLS >> 16, vinfo[0].FileVersionLS & 0xffff)
                     info["version"] = ".".join(map(str, file_version))
             
+            if hasattr(pe, 'VS_VERSIONINFO'):
+                for string_table in pe.VS_VERSIONINFO[0].VarFileInfo[0].StringFileInfo:
+                    for string in string_table.StringTable:
+                        info.update({
+                            "company": string.get('CompanyName', 'Unknown'),
+                            "product": string.get('ProductName', 'Unknown'),
+                            "description": string.get('FileDescription', ''),
+                            "file_version": string.get('FileVersion', ''),
+                            "internal_name": string.get('InternalName', ''),
+                            "legal_copyright": string.get('LegalCopyright', ''),
+                            "original_filename": string.get('OriginalFilename', ''),
+                            "product_version": string.get('ProductVersion', ''),
+                        })
+            
             return info
-        except:
+        except Exception as e:
+            logger.debug(f"Fallback version info failed: {e}")
             return {}
     
     @staticmethod
     def get_file_signature(filepath: str) -> Dict[str, str]:
+        """Get file digital signature info (requires sigcheck from Sysinternals)"""
         try:
             result = subprocess.run(
-                ['sigcheck', '-nobanner', filepath],
+                ['sigcheck', '-nobanner', '-j', filepath],
                 capture_output=True,
                 text=True,
                 timeout=10
             )
             
             if result.returncode == 0:
-                signature_info = {}
-                for line in result.stdout.strip().split('\n'):
-                    if ':' in line:
-                        key, val = line.split(':', 1)
-                        signature_info[key.strip()] = val.strip()
-                return signature_info
+                try:
+                    return json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    signature_info = {}
+                    for line in result.stdout.strip().split('\n'):
+                        if ':' in line:
+                            key, val = line.split(':', 1)
+                            signature_info[key.strip()] = val.strip()
+                    return signature_info
+        except FileNotFoundError:
+            logger.warning("sigcheck tool not found. Download from Sysinternals.")
         except Exception as e:
             logger.debug(f"Signature check failed: {e}")
         
@@ -117,9 +136,9 @@ class WindowsIntegration:
                 "path": filepath,
                 "name": os.path.basename(filepath),
                 "size": file_stat.st_size,
-                "created": datetime.fromtimestamp(file_stat.st_ctime).isoformat(),
-                "modified": datetime.fromtimestamp(file_stat.st_mtime).isoformat(),
-                "accessed": datetime.fromtimestamp(file_stat.st_atime).isoformat(),
+                "created": datetime.fromtimestamp(file_stat.st_ctime).isoformat() if file_stat.st_ctime > 0 else "Invalid",
+                "modified": datetime.fromtimestamp(file_stat.st_mtime).isoformat() if file_stat.st_mtime > 0 else "Invalid",
+                "accessed": datetime.fromtimestamp(file_stat.st_atime).isoformat() if file_stat.st_atime > 0 else "Invalid",
                 "md5": md5.hexdigest(),
                 "sha256": sha256.hexdigest(),
                 "attributes": oct(file_stat.st_mode),
@@ -139,7 +158,7 @@ class WindowsIntegration:
         """Check if process is running"""
         try:
             import psutil
-            return any(p.name() == process_name for p in psutil.process_iter())
+            return any(p.info['name'] == process_name for p in psutil.process_iter(['name']))
         except ImportError:
             logger.debug("psutil not installed")
             return False
@@ -183,10 +202,10 @@ class SystemAnalyzer:
             pe = pefile.PE(filepath)
             analysis = {
                 "file": filepath,
-                "machine_type": pe.FILE_HEADER.Machine,
-                "subsystem": pe.OPTIONAL_HEADER.Subsystem,
-                "entry_point": pe.OPTIONAL_HEADER.AddressOfEntryPoint,
-                "base_of_code": pe.OPTIONAL_HEADER.BaseOfCode,
+                "machine_type": hex(pe.FILE_HEADER.Machine),
+                "subsystem": hex(pe.OPTIONAL_HEADER.Subsystem),
+                "entry_point": hex(pe.OPTIONAL_HEADER.AddressOfEntryPoint),
+                "base_of_code": hex(pe.OPTIONAL_HEADER.BaseOfCode),
             }
             return analysis
         except Exception as e:
@@ -207,10 +226,13 @@ class SystemAnalyzer:
             }
 
             if pe.OPTIONAL_HEADER.CheckSum == 0:
-                compatibility["warnings"].append("No checksum")
+                compatibility["warnings"].append("No checksum (possible tampering)")
             
             if not hasattr(pe, 'DIRECTORY_ENTRY_IMPORT'):
-                compatibility["warnings"].append("No imports (might be packed)")
+                compatibility["warnings"].append("No imports directory (might be packed or malform)")
+            
+            if len(compatibility["warnings"]) > 0:
+                compatibility["compatible"] = False
             
             return compatibility
         except Exception as e:
