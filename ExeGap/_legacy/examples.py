@@ -64,186 +64,124 @@ def example_security_analysis(exe_path: str):
     packing = SecurityAnalyzer.detect_packing(pe)
     print(f"\nPacking Detection:")
     print(f"  Packed: {packing['packed']}")
-    print(f"  Entropy Levels: {packing['entropy_levels']}")
-
-    imports = SecurityAnalyzer.extract_imports(pe)
-    print(f"\nImports by DLL:")
-    for dll, apis in list(imports.items())[:3]:
-        print(f"  {dll}: {len(apis)} APIs")
-        print(f"    {', '.join(apis[:3])}...")
-
-    exports = SecurityAnalyzer.extract_exports(pe)
-    if exports:
-        print(f"\nExports: {len(exports)} functions")
-        print(f"  {', '.join(exports[:5])}...")
+    print(f"  Suspicious Sections: {packing['suspicious_sections']}")
 
 
 def example_api_hook_detection(exe_path: str):
-    """Advanced example: API hook and malware behavior detection"""
+    """API hook detection example"""
     print("\n" + "="*60)
-    print("EXAMPLE 3: API Hooks & Malware Behavior")
+    print("EXAMPLE 3: API Hook Detection")
     print("="*60)
     
     analyzer = ImportAnalyzerSuite(exe_path)
     report = analyzer.run_analysis()
-
-    if report['suspicious']['injection_capable']:
-        print("⚠️  SUSPICIOUS: Binary has process injection capabilities")
     
-    if report['suspicious']['hooking_capable']:
-        print("⚠️  SUSPICIOUS: Binary has API hooking capabilities")
-
-    if report['hook_chains']:
-        print("\nDetected Hook Chains:")
-        for chain in report['hook_chains']:
-            print(f"  {chain['chain']}")
-
-    print("\nBehavior Analysis:")
-    for behavior, info in report['behavior_analysis'].items():
-        if info['matches'] > 0:
-            print(f"  {behavior.upper()}: {info['matches']} indicators")
+    print(f"Hook Detection: {report['hook_detection']['hooked']}")
+    print("Patterns Found:")
+    for pattern in report['hook_detection']['patterns_found']:
+        print(f"  - {pattern['type']} at {hex(pattern['offset'])}")
 
 
 def example_file_carving(exe_path: str):
-    """File carving example: Extract embedded files"""
+    """File carving example"""
     print("\n" + "="*60)
-    print("EXAMPLE 4: File Carving & Extraction")
+    print("EXAMPLE 4: File Carving")
     print("="*60)
-
+    
     with open(exe_path, 'rb') as f:
         data = f.read()
-
-    carver = CarvingEngine(data)
-
-    findings = carver.find_signatures()
-    print(f"\nFound {len(findings)} file signatures:")
     
-    for offset, sig, ext in findings[:10]:
-        print(f"  0x{offset:x}: {ext} ({sig.hex()[:20]}...)")
-
-    out_dir = "example_output_carved"
-    results = carver.carve_files(out_dir)
-    print(f"\nCarved {len(results)} files to {out_dir}")
+    engine = CarvingEngine(data, "carved_output")
+    engine.carve_all()
+    summary = engine.get_summary()
+    
+    print(f"Total Found: {summary['total_found']}")
+    print("File Types:")
+    for ftype, count in summary['file_types'].items():
+        print(f"  - {ftype}: {count}")
 
 
 def example_secret_extraction(exe_path: str):
-    """Secret extraction example: Find credentials and configs"""
+    """Secret extraction example"""
     print("\n" + "="*60)
-    print("EXAMPLE 5: Secret & Config Extraction")
+    print("EXAMPLE 5: Secret Extraction")
     print("="*60)
     
     extractor = SecretExtractorSuite(exe_path)
     results = extractor.extract_all()
-
-    total_secrets = sum(len(v) for v in results['secrets'].values())
-    print(f"\nSecrets Found: {total_secrets}")
     
-    for secret_type, findings in results['secrets'].items():
-        if findings:
-            print(f"  {secret_type}: {len(findings)} instances")
-            for finding in findings[:2]:
-                print(f"    - {finding['value'][:60]}...")
-    
-    print(f"\nIndicators of Compromise:")
-    iocs = results['iocs']
-    print(f"  URLs: {len(iocs['urls'])}")
-    print(f"  IPs: {len(iocs['ips'])}")
-    print(f"  Domains: {len(iocs['domains'])}")
-    print(f"  Emails: {len(iocs['emails'])}")
-
-    creds = results['credentials']
-    if creds:
-        print(f"\nCredential Indicators:")
-        for category, items in creds.items():
-            if items:
-                print(f"  {category}: {len(items)} found")
+    print(f"Secrets Found: {len(results['secrets'])}")
+    for secret in results['secrets'][:5]:
+        print(f"  - {secret['type']}: {secret['value'][:20]}...")
 
 
 def example_dotnet_analysis(exe_path: str):
-    """Advanced example: .NET assembly analysis"""
+    """ .NET analysis example"""
     print("\n" + "="*60)
-    print("EXAMPLE 6: .NET Assembly Analysis")
+    print("EXAMPLE 6: .NET Analysis")
     print("="*60)
     
     decompiler = DotNetDecompiler(exe_path)
     results = decompiler.decompile()
     
-    metadata = results['metadata']
-    print(f"\n.NET Binary: {metadata['is_dotnet']}")
+    print(f"CLR Version: {results['metadata'].get('clr_version', 'Unknown')}")
+    print(f"Manifest Found: {results['manifest']['found']}")
+
+
+def example_custom_workflow(exe_path: str):
+    """Custom workflow example"""
+    print("\n" + "="*60)
+    print("EXAMPLE 8: Custom Workflow")
+    print("="*60)
     
-    if metadata['is_dotnet']:
-        print(f"Runtime Version: {metadata['runtime_version']}")
-        print(f"Entry Point: 0x{metadata['entry_point']:x}")
+    out_dir = "custom_analysis"
+    os.makedirs(out_dir, exist_ok=True)
+
+    ResourceExtractor.extract_resources(exe_path, out_dir)
+
+    with open(exe_path, 'rb') as f:
+        data = f.read()
+    CarvingEngine.carve_all(data, out_dir)
+
+    extractor = StringExtractor()
+    strings = extractor.extract_strings(data)
+    secrets = extractor.find_secrets(data)
+    
+    import pefile
+    pe = pefile.PE(exe_path)
+    packing = SecurityAnalyzer.detect_packing(pe)
+
+    custom_report = {
+        "strings": strings,
+        "secrets": secrets,
+        "packing": packing
+    }
+    
+    with open(os.path.join(out_dir, "custom_report.json"), 'w') as f:
+        json.dump(custom_report, f, indent=2)
+    
+    print(f"\n✓ Custom analysis saved to {out_dir}")
 
 
 def example_batch_processing(directory: str):
-    """Batch example: Process multiple files"""
+    """Batch processing example"""
     print("\n" + "="*60)
     print("EXAMPLE 7: Batch Processing")
     print("="*60)
     
-    from cli import BatchProcessor
+    files = list(Path(directory).glob("*.exe"))
+    results = []
     
-    processor = BatchProcessor("example_output_batch")
-
-    exe_files = list(Path(directory).glob("*.exe"))
-    print(f"\nFound {len(exe_files)} EXE files")
-
-    for exe_file in exe_files[:3]:
-        print(f"\nProcessing: {exe_file.name}")
-        result = processor.process_file(str(exe_file))
-        print(f"  Status: {result['status']}")
-
-
-def example_custom_workflow(exe_path: str):
-    """Custom workflow: Combine multiple modules"""
-    print("\n" + "="*60)
-    print("EXAMPLE 8: Custom Combined Workflow")
-    print("="*60)
+    for file in files:
+        suite = DecompilerSuite(str(file), f"batch_{file.stem}")
+        report = suite.run_full_analysis()
+        results.append({
+            "file": str(file),
+            "packed": report["security"]["packed"]
+        })
     
-    out_dir = "example_output_custom"
-    os.makedirs(out_dir, exist_ok=True)
-    
-    with open(exe_path, 'rb') as f:
-        binary_data = f.read()
-    
-    print("\n1. Quick Security Check...")
-    import pefile
-    pe = pefile.PE(exe_path)
-    security = SecurityAnalyzer.detect_packing(pe)
-    print(f"   Packed: {security['packed']}")
-    
-    print("\n2. Extracting Resources...")
-    res_dir = os.path.join(out_dir, "resources")
-    resources = ResourceExtractor.extract_all_resources(exe_path, res_dir)
-    print(f"   Extracted: {resources['total']} resources")
-    
-    print("\n3. Carving Embedded Files...")
-    carver = CarvingEngine(binary_data)
-    carvings = carver.carve_files(os.path.join(out_dir, "carved"))
-    print(f"   Carved: {len(carvings)} files")
-    
-    print("\n4. Extracting Strings & Intelligence...")
-    strings = StringExtractor.extract_strings(binary_data)
-    unicode_strings = StringExtractor.extract_unicode_strings(binary_data)
-    urls_ips = StringExtractor.extract_urls_and_ips(strings + unicode_strings)
-    print(f"   Strings: {len(strings)} ASCII, {len(unicode_strings)} Unicode")
-    print(f"   URLs: {len(urls_ips['urls'])}, IPs: {len(urls_ips['ips'])}")
-    
-    print("\n5. Analyzing APIs & Behavior...")
-    analyzer = ImportAnalyzerSuite(exe_path)
-    analysis = analyzer.run_analysis()
-    print(f"   Imports: {len(analysis['imports'])} DLLs")
-    if analysis['suspicious']['injection_capable']:
-        print("   ⚠️  Injection capable")
-    
-    print("\n6. Extracting Secrets...")
-    secret_extractor = SecretExtractorSuite(exe_path)
-    secrets = secret_extractor.extract_all()
-    total_secrets = sum(len(v) for v in secrets['secrets'].values())
-    print(f"   Secrets found: {total_secrets}")
-    
-    print(f"\n✓ Complete analysis saved to {out_dir}")
+    print(f"Processed {len(results)} files")
+    print(json.dumps(results, indent=2))
 
 
 def main():
