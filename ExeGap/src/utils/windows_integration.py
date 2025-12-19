@@ -182,7 +182,15 @@ class SystemAnalyzer:
             
             pe = pefile.PE(filepath)
             analysis = {
-                "file": filepath,PE analysis failed: {e}")
+                "file": filepath,
+                "machine_type": pe.FILE_HEADER.Machine,
+                "subsystem": pe.OPTIONAL_HEADER.Subsystem,
+                "entry_point": pe.OPTIONAL_HEADER.AddressOfEntryPoint,
+                "base_of_code": pe.OPTIONAL_HEADER.BaseOfCode,
+            }
+            return analysis
+        except Exception as e:
+            logger.error(f"PE analysis failed: {e}")
             return {"error": str(e)}
     
     @staticmethod
@@ -210,7 +218,7 @@ class SystemAnalyzer:
 
 
 if __name__ == "__main__":
-    import s
+    import sys
     if len(sys.argv) < 2:
         print("Usage: python windows_integration.py <PE_FILE>")
         sys.exit(1)
