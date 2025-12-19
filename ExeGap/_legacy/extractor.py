@@ -43,7 +43,7 @@ def extract_pe_resources(pe_path, out_dir):
                             data_rva = res_lang.data.struct.OffsetToData
                             size = res_lang.data.struct.Size
                             data = pe.get_data(data_rva, size)
-                            name = f"resource_{res_count}"
+                            name = f"resource_{res_count}.bin"
                             out_path = os.path.join(out_dir, name)
                             with open(out_path, 'wb') as f:
                                 f.write(data)
@@ -58,11 +58,11 @@ def find_all_offsets(data, sig):
     offs = []
     start = 0
     while True:
-        idx = data.find(sig, start)
-        if idx == -1:
+        offset = data.find(sig, start)
+        if offset == -1:
             break
-        offs.append(idx)
-        start = idx + 1
+        offs.append(offset)
+        start = offset + 1
     return offs
 
 
@@ -71,43 +71,39 @@ def carve_by_signatures(data, out_dir):
     found = []
     sig_offsets = []
     for sig, ext in SIGNATURES.items():
-        for off in find_all_offsets(data, sig):
-            sig_offsets.append((off, sig, ext))
-
-    sig_offsets.sort(key=lambda x: x[0])
-
-    for i, (off, sig, ext) in enumerate(sig_offsets):
-        start = off
-        end = len(data)
-        if i + 1 < len(sig_offsets):
-            end = sig_offsets[i + 1][0]
-        if end - start < 64:
-            continue
-        out_name = f"carved_{start:08d}{ext}"
+        offsets = find_all_offsets(data, sig)
+        for off in offsets:
+            found.append((off, sig, ext))
+    
+    found.sort(key=lambda x: x[0])
+    
+    for i, (off, sig, ext) in enumerate(found):
+        if i < len(found) - 1:
+            size = found[i+1][0] - off
+        else:
+            size = len(data) - off
+        
+        out_name = f"carved_{off:08x}{ext}"
         out_path = os.path.join(out_dir, out_name)
+        
         with open(out_path, 'wb') as f:
-            f.write(data[start:end])
-        found.append(out_path)
-        print(f"[+] Carved {out_path} (sig={sig!r}, size={end-start})")
-    if not found:
-        print("[-] No known signatures found for carving.")
-    return found
+            f.write(data[off:off + size])
+        
+        print(f"[+] Carved {ext} at offset {off}, size {size} to {out_name}")
 
 
 def attempt_parse_embedded_pes(data, out_dir):
-    mz_offsets = find_all_offsets(data, b'MZ')
+    ensure_dir(out_dir)
     parsed = 0
-    for off in mz_offsets:
+    offsets = find_all_offsets(data, b'MZ')
+    
+    for off in offsets:
         try:
             candidate = data[off:]
-            pe = pefile.PE(data=candidate, fast_load=True)
-            size_est = 0
-            if hasattr(pe, 'sections'):
-                for s in pe.sections:
-                    size_est = max(size_est, s.PointerToRawData + s.SizeOfRawData)
-            if size_est == 0:
-                size_est = min(len(candidate), 1024 * 1024 * 10)
-            out_path = os.path.join(out_dir, f"embedded_{off:08d}.exe")
+            pe = pefile.PE(data=candidate)
+            size_est = pe.OPTIONAL_HEADER.SizeOfImage
+            
+            out_path = os.path.join(out_dir, f"embedded_{off:08x}.exe")
             with open(out_path, 'wb') as f:
                 f.write(candidate[:size_est])
             parsed += 1
