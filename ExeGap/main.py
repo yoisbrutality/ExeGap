@@ -128,6 +128,7 @@ Examples:
         )
 
         report_parser = subparsers.add_parser("report", help="Generate report")
+        report_parser.add_argument("input", help="Input JSON data file for report")
         report_parser.add_argument("output", help="Output report file")
         report_parser.add_argument(
             "--format",
@@ -180,11 +181,13 @@ Examples:
         try:
             with open(args.file, 'rb') as f:
                 binary_data = f.read()
-            Analyzer(args.file)
+            
+            analyzer = PEAnalyzer(args.file)
             pe_analysis = analyzer.get_full_analysis()
             
             logger.info("Running security analysis...")
             security_analyzer = SecurityAnalyzer(analyzer.pe)
+            security_analysis = security_analyzer.get_full_security_report()
             
             results = {
                 "file": args.file,
@@ -195,34 +198,43 @@ Examples:
             
             if args.dotnet:
                 logger.info("Running .NET analysis...")
+                dotnet = DotNetHandler(args.file)
                 if dotnet.is_dotnet_assembly():
                     results["dotnet_analysis"] = dotnet.get_full_analysis()
-
+            
+            if args.carve:
                 logger.info("Carving embedded files...")
                 carver = FileCarver(binary_data, os.path.join(args.out, "carved"))
                 results["carved_files"] = carver.get_summary()
-
+            
+            if args.config:
                 logger.info("Extracting configuration and secrets...")
+                config_extractor = ConfigExtractor(args.file)
                 config_extractor.extract_from_binary(binary_data)
                 results["configuration_extraction"] = config_extractor.get_report()
-
+                
+                iocs = config_extractor.get_iocs() if hasattr(config_extractor, 'get_iocs') else None
                 if iocs:
+                    ioc_file = os.path.join(args.out, f"{Path(args.file).stem}_iocs.json")
                     with open(ioc_file, 'w') as f:
                         json.dump(iocs, f, indent=2)
                     logger.info(f"IOCs exported to: {ioc_file}")
             
+            output_file = os.path.join(args.out, f"{Path(args.file).stem}_report.json")
             with open(output_file, 'w') as f:
                 json.dump(results, f, indent=2)
             
             logger.info(f"Analysis saved to: {output_file}")
             
+            gen = ReportGenerator(results, args.out)
+            
             if args.format in ["html", "all"]:
-                gen.to_html("analysis_report.html")
+                logger.info("Generating HTML report...")
+                gen.to_html(f"{Path(args.file).stem}_report.html")
             
             if args.format in ["csv", "all"]:
                 logger.info("Generating CSV report...")
-                gen = ReportGenerator(results, args.out)
-                gen.to_csv("analysis_report.csv")
+                gen.to_csv(f"{Path(args.file).stem}_report.csv")
             
             logger.info("Analysis complete!")
             return 0
@@ -265,7 +277,8 @@ Examples:
             json.dump({"total": len(files), "analyzed": len(results), "results": results}, f, indent=2, default=str)
         
         logger.info(f"Batch analysis complete! Report: {batch_report}")
-        
+        return 0
+    
     def _analyze_file(self, filepath: str, output_dir: str) -> Dict:
         """Analyze single file for batch processing"""
         try:
