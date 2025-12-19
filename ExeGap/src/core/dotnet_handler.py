@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""
-.NET Assembly Analysis and Decompilation
-CLR metadata parsing and IL code analysis
-"""
 import pefile
 import struct
 import logging
 import json
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +50,7 @@ class DotNetHandler:
     def is_dotnet_assembly(self) -> bool:
         """Check if PE is .NET assembly"""
         try:
-            if not hasattr(self.pe, 'DIRECTORY_ENTRY_COM_PLUS_RUNTIME_HEADER'):
-                return False
-            return self.pe.DIRECTORY_ENTRY_COM_PLUS_RUNTIME_HEADER.cb > 0
+            return self.pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR']].VirtualAddress > 0
         except:
             return False
     
@@ -74,18 +69,18 @@ class DotNetHandler:
         metadata["is_dotnet"] = True
         
         try:
-            if hasattr(self.pe, 'DIRECTORY_ENTRY_COM_PLUS_RUNTIME_HEADER'):
-                header = self.pe.DIRECTORY_ENTRY_COM_PLUS_RUNTIME_HEADER
-                runtime_dir = self.pe.get_data(header.MetaData, 100)
+            cor20 = self.pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR']]
+            cor20_data = self.pe.get_data(cor20.VirtualAddress, cor20.Size)
+            
+            if cor20_data:
+                major, minor = struct.unpack('<HH', cor20_data[4:8])
+                metadata["runtime_version"] = f"v{major}.{minor}"
                 
-                if runtime_dir:
-                    version_offset = struct.unpack('<I', runtime_dir[12:16])[0]
-                    version_data = runtime_dir[version_offset:version_offset+20]
-                    metadata["runtime_version"] = version_data.decode('utf-8', errors='ignore').strip('\x00')
+                entry_point_token = struct.unpack('<I', cor20_data[20:24])[0]
+                metadata["entry_point"]["token"] = hex(entry_point_token)
 
-                    entry_point_token = struct.unpack('<I', runtime_dir[28:32])[0]
-                    metadata["entry_point"]["token"] = hex(entry_point_token)
-                    metadata["entry_point"]["rva"] = hex(entry_point_token & 0xFFFFFF)
+                flags = struct.unpack('<I', cor20_data[16:20])[0]
+                metadata["flags"] = self._decode_flags(flags)
         except Exception as e:
             logger.debug(f"Error extracting CLR metadata: {e}")
 
@@ -93,7 +88,7 @@ class DotNetHandler:
         for section in self.pe.sections:
             if section.Name.startswith(b'.'):
                 section_info = {
-                    "name": section.Name.decode('utf-8', errors='ignore').strip('\x00'),
+                    "name": section.Name.decode('utf-8', errors='ignore').rstrip('\x00'),
                     "virtual_size": section.VirtualSize,
                     "raw_size": section.SizeOfRawData,
                     "characteristics": hex(section.Characteristics),
@@ -102,7 +97,19 @@ class DotNetHandler:
         
         return metadata
     
-    def extract_resources(self) -> Dict[str, Any]:
+    def _decode_flags(self, flags: int) -> List[str]:
+        flag_dict = {
+            0x00000001: "IL_ONLY",
+            0x00000002: "32BITREQUIRED",
+            0x00000004: "IL_LIBRARY",
+            0x00000008: "STRONGNAMESIGNED",
+            0x00000010: "NATIVE_ENTRYPOINT",
+            0x00010000: "TRACKDEBUGDATA",
+            0x00020000: "PREFER_32BIT",
+        }
+        return [name for bit, name in flag_dict.items() if flags & bit]
+    
+    def extract_resources(self, output_dir: str = "extracted_resources") -> Dict[str, Any]:
         """Extract embedded resources from .NET assembly"""
         resources = {
             "found": False,
@@ -113,17 +120,34 @@ class DotNetHandler:
         if not hasattr(self.pe, 'DIRECTORY_ENTRY_RESOURCE'):
             return resources
         
+        os.makedirs(output_dir, exist_ok=True)
         resources["found"] = True
         
         try:
             for resource_type in self.pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                resource_info = {
-                    "type_id": resource_type.id,
-                    "type_name": pefile.RESOURCE_TYPE.get(resource_type.id, "Unknown"),
-                    "entries": len(resource_type.directory.entries) if hasattr(resource_type, 'directory') else 0,
-                }
-                resources["resources"].append(resource_info)
-                resources["count"] += 1
+                if not hasattr(resource_type, 'directory'):
+                    continue
+                for resource_id in resource_type.directory.entries:
+                    if not hasattr(resource_id, 'directory'):
+                        continue
+                    for resource_lang in resource_id.directory.entries:
+                        data_rva = resource_lang.data.struct.OffsetToData
+                        size = resource_lang.data.struct.Size
+                        data = self.pe.get_data(data_rva, size)
+                        
+                        resource_name = f"resource_{resource_type.id}_{resource_id.id}_{resource_lang.id}.bin"
+                        out_path = os.path.join(output_dir, resource_name)
+                        with open(out_path, 'wb') as f:
+                            f.write(data)
+                        
+                        resource_info = {
+                            "type_id": resource_type.id,
+                            "type_name": pefile.RESOURCE_TYPE.get(resource_type.id, "Unknown"),
+                            "size": size,
+                            "path": out_path,
+                        }
+                        resources["resources"].append(resource_info)
+                        resources["count"] += 1
         except Exception as e:
             logger.debug(f"Error extracting resources: {e}")
         
@@ -138,17 +162,17 @@ class DotNetHandler:
 
         if hasattr(self.pe, 'DIRECTORY_ENTRY_IMPORT'):
             for dll in self.pe.DIRECTORY_ENTRY_IMPORT:
-                dll_name = dll.dll.decode('utf-8', errors='ignore')
+                dll_name = dll.dll.decode('utf-8', errors='ignore').rstrip('\x00')
                 info["imports"][dll_name] = []
                 
                 for func in dll.imports:
-                    func_name = func.name.decode('utf-8', errors='ignore') if func.name else f"Ordinal_{func.ordinal}"
+                    func_name = func.name.decode('utf-8', errors='ignore').rstrip('\x00') if func.name else f"Ordinal_{func.ordinal}"
                     info["imports"][dll_name].append(func_name)
 
         if hasattr(self.pe, 'DIRECTORY_ENTRY_EXPORT'):
             for export in self.pe.DIRECTORY_ENTRY_EXPORT.symbols:
                 export_info = {
-                    "name": export.name.decode('utf-8', errors='ignore') if export.name else "Unknown",
+                    "name": export.name.decode('utf-8', errors='ignore').rstrip('\x00') if export.name else "Unknown",
                     "address": hex(export.address),
                 }
                 info["exports"].append(export_info)
@@ -179,6 +203,8 @@ class DotNetHandler:
             "DynamicMethod",
             "ILGenerator",
             "Emit",
+            "Confuser",
+            "Dotfuscator",
         ]
         
         for dll in self.pe.DIRECTORY_ENTRY_IMPORT:
@@ -187,10 +213,13 @@ class DotNetHandler:
                 
                 if any(susp in func_name for susp in suspicious):
                     patterns["detected_patterns"].append(func_name)
+                    patterns["suspicious_apis"].append(func_name)
                     if "GetMethod" in func_name or "Invoke" in func_name:
                         patterns["reflection"] = True
                     if "DynamicMethod" in func_name or "ILGenerator" in func_name:
                         patterns["dynamic_code"] = True
+                    if "Confuser" in func_name or "Dotfuscator" in func_name:
+                        patterns["obfuscation"] = True
         
         return patterns
     
@@ -202,50 +231,6 @@ class DotNetHandler:
             "imports_exports": self.get_imports_exports(),
             "il_patterns": self.analyze_il_code_patterns(),
         }
-
-
-class ResourceExtractor:
-    """Extract and analyze resources from PE files"""
-    
-    def __init__(self, pe_object, output_dir: str = "extracted_resources"):
-        """Initialize resource extractor"""
-        self.pe = pe_object
-        self.output_dir = output_dir
-        
-        import os
-        os.makedirs(output_dir, exist_ok=True)
-    
-    def extract_all_resources(self) -> Dict[str, Any]:
-        """Extract all resources from PE"""
-        results = {
-            "total": 0,
-            "extracted": 0,
-            "resources": [],
-        }
-        
-        if not hasattr(self.pe, 'DIRECTORY_ENTRY_RESOURCE'):
-            return results
-        
-        try:
-            for resource_type in self.pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                type_name = pefile.RESOURCE_TYPE.get(resource_type.id, "Unknown")
-                
-                if hasattr(resource_type, 'directory'):
-                    for resource_id in resource_type.directory.entries:
-                        if hasattr(resource_id, 'directory'):
-                            for res_data in resource_id.directory.entries:
-                                results["total"] += 1
-                                
-                                resource_info = {
-                                    "type": type_name,
-                                    "id": resource_id.id,
-                                    "language": res_data.id,
-                                }
-                                results["resources"].append(resource_info)
-        except Exception as e:
-            logger.error(f"Error extracting resources: {e}")
-        
-        return results
 
 
 if __name__ == "__main__":
