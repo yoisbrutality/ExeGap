@@ -134,6 +134,7 @@ class ExeGapGUI(QMainWindow):
     
     def _create_file_section(self) -> QGroupBox:
         """Create file selection section"""
+        group = QGroupBox("Binary Selection")
         layout = QHBoxLayout()
         
         self.file_input = QLineEdit()
@@ -156,6 +157,7 @@ class ExeGapGUI(QMainWindow):
     
     def _create_analysis_tab(self) -> QWidget:
         """Create analysis tab"""
+        widget = QWidget()
         layout = QVBoxLayout()
 
         self.progress = QProgressBar()
@@ -177,6 +179,7 @@ class ExeGapGUI(QMainWindow):
     
     def _create_security_tab(self) -> QWidget:
         """Create security analysis tab"""
+        widget = QWidget()
         layout = QVBoxLayout()
 
         self.security_tree = QTreeWidget()
@@ -189,6 +192,7 @@ class ExeGapGUI(QMainWindow):
     
     def _create_results_tab(self) -> QWidget:
         """Create results tab"""
+        widget = QWidget()
         layout = QVBoxLayout()
 
         self.results_text = QTextEdit()
@@ -216,6 +220,7 @@ class ExeGapGUI(QMainWindow):
     
     def _setup_styles(self):
         """Setup application styles"""
+        stylesheet = """
         QMainWindow {
             background-color: #f0f0f0;
         }
@@ -261,6 +266,7 @@ class ExeGapGUI(QMainWindow):
     
     def _browse_file(self):
         """Browse and select file"""
+        filepath, _ = QFileDialog.getOpenFileName(
             self,
             "Select PE Executable",
             "",
@@ -275,6 +281,7 @@ class ExeGapGUI(QMainWindow):
     
     def _start_analysis(self):
         """Start binary analysis"""
+        if not self.current_file:
             QMessageBox.warning(self, "Error", "Please select a valid file")
             return
 
@@ -298,7 +305,8 @@ class ExeGapGUI(QMainWindow):
     def _on_progress(self, message: str):
         """Handle progress update"""
         self.statusBar.showMessage(message)
-    _on_result(self, results: dict):
+    
+    def _on_result(self, results: dict):
         """Handle analysis results"""
         self.analysis_results = results
         
@@ -344,8 +352,9 @@ class ExeGapGUI(QMainWindow):
         """Export results as JSON"""
         filepath, _ = QFileDialog.getSaveFileName(
             self,
-            "analysis_report.json",
-            "JSON Files (*.json)"
+            "Save Analysis Report",
+            "analysis_report.html",
+            "HTML Files (*.html)"
         )
         
         if filepath:
@@ -449,7 +458,8 @@ def main():
     app = QApplication(sys.argv)
     window = ExeGapGUI()
     window.show()
-    
+    sys.exit(app.exec_())
+
 
 if __name__ == "__main__":
     main()
