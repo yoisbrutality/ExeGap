@@ -60,7 +60,7 @@ class APIHookDetector:
                     findings["hooked"] = True
                     findings["patterns_found"].append({
                         "type": hook_type,
-                        "offset": section.VirtualAddress + offset,
+                        "offset": hex(section.VirtualAddress + offset),
                         "pattern": pattern.hex()
                     })
                     offset += len(pattern)
@@ -69,10 +69,9 @@ class APIHookDetector:
     
     @staticmethod
     def _is_likely_hook(code: bytes, offset: int, pattern: bytes) -> bool:
-        """Heuristic to determine if pattern is likely a hook vs legitimate code"""
-        if offset < 16:
+        """Heuristic to determine if pattern is likely a hook"""
+        if offset < 5 or offset > len(code) - 10:
             return False
-
         return True
     
     @staticmethod
@@ -80,137 +79,100 @@ class APIHookDetector:
         """Detect sequences of imports that suggest hooking"""
         chains = []
         
-        for suspect_chain in APIHookDetector.SUSPICIOUS_SEQUENCES:
-            api1, api2 = suspect_chain
-            found1, found2 = False, False
-            dll1, dll2 = None, None
-            
-            for dll, apis in imports.items():
-                if api1 in apis:
-                    found1 = True
-                    dll1 = dll
-                if api2 in apis:
-                    found2 = True
-                    dll2 = dll
-            
-            if found1 and found2:
-                chains.append({
-                    "chain": suspect_chain,
-                    "dlls": [dll1, dll2],
-                    "severity": "medium"
-                })
+        all_imports = [func for dll_imports in imports.values() for func in dll_imports]
+        
+        for sus_pair in APIHookDetector.SUSPICIOUS_SEQUENCES:
+            if all(func in all_imports for func in sus_pair):
+                chains.append(sus_pair)
         
         return chains
 
 
 class ImportAnalyzer:
-    """Analyze imported functions and DLL dependencies"""
+    """Analyze PE imports"""
 
-    API_CATEGORIES = {
-        "process": ["CreateProcessA", "CreateProcessW", "TerminateProcess", "GetCurrentProcess"],
-        "memory": ["VirtualAlloc", "VirtualAllocEx", "WriteProcessMemory", "ReadProcessMemory"],
-        "injection": ["CreateRemoteThread", "NtCreateThreadEx", "SetThreadContext"],
-        "hooking": ["SetWindowsHookEx", "GetProcAddress", "LoadLibrary"],
-        "file_io": ["CreateFileA", "CreateFileW", "ReadFile", "WriteFile", "DeleteFileA"],
-        "registry": ["RegOpenKeyEx", "RegQueryValueEx", "RegSetValueEx", "RegDeleteKey"],
-        "networking": ["socket", "connect", "send", "recv", "WSASocket"],
-        "encryption": ["CryptEncrypt", "CryptDecrypt", "CryptCreateHash"],
-        "system": ["GetSystemDirectory", "GetWindowsDirectory", "GetEnvironmentVariable"],
+    DANGEROUS_APIS = {
+        "kernel32.dll": [
+            "WriteProcessMemory", "CreateRemoteThread", "VirtualAllocEx",
+            "SetWindowsHookEx", "GetProcAddress", "LoadLibraryA",
+            "CreateProcessA", "OpenProcess", "ResumeThread"
+        ],
+        "user32.dll": ["SetWindowsHookEx", "GetWindowText", "GetClipboardData"],
+        "advapi32.dll": ["CryptEncrypt", "CryptDecrypt", "RegSetValueEx"],
+        "ntdll.dll": ["NtWriteVirtualMemory", "NtCreateThreadEx"],
+        "wininet.dll": ["InternetOpen", "InternetConnect", "HttpSendRequest"],
+        "shell32.dll": ["ShellExecute", "ShellExecuteEx"],
+    }
+    
+    CATEGORIES = {
+        "process_injection": ["WriteProcessMemory", "CreateRemoteThread", "VirtualAllocEx"],
+        "hooking": ["SetWindowsHookEx", "GetProcAddress"],
+        "network": ["InternetOpen", "InternetConnect", "HttpSendRequest"],
+        "encryption": ["CryptEncrypt", "CryptDecrypt"],
+        "execution": ["ShellExecute", "CreateProcessA", "WinExec"],
     }
     
     @staticmethod
     def categorize_imports(imports: Dict[str, List[str]]) -> Dict[str, List[str]]:
-        """Categorize imported functions"""
-        categorized = defaultdict(list)
+        """Categorize imports by function type"""
+        categories = defaultdict(list)
         
-        for dll, apis in imports.items():
-            for api in apis:
-                for category, api_list in ImportAnalyzer.API_CATEGORIES.items():
-                    if any(api.lower().startswith(kw.lower()) for kw in api_list):
-                        categorized[category].append(f"{dll}!{api}")
-                        break
+        for dll, funcs in imports.items():
+            for func in funcs:
+                for cat, apis in ImportAnalyzer.CATEGORIES.items():
+                    if func in apis:
+                        categories[cat].append(f"{dll}!{func}")
         
-        return dict(categorized)
+        return dict(categories)
     
     @staticmethod
-    def detect_suspicious_imports(imports: Dict[str, List[str]]) -> Dict[str, any]:
-        """Detect suspicious API import patterns"""
-        suspicious = {
-            "injection_capable": False,
-            "hooking_capable": False,
-            "apis": []
-        }
+    def detect_suspicious_imports(imports: Dict[str, List[str]]) -> List[str]:
+        """Detect potentially malicious imports"""
+        suspicious = []
         
-        injection_apis = ["VirtualAllocEx", "WriteProcessMemory", "CreateRemoteThread"]
-        hooking_apis = ["SetWindowsHookEx", "GetProcAddress"]
-        
-        all_apis = []
-        for apis in imports.values():
-            all_apis.extend(apis)
-        
-        injection_count = sum(1 for api in injection_apis if any(api in a for a in all_apis))
-        hooking_count = sum(1 for api in hooking_apis if any(api in a for a in all_apis))
-        
-        if injection_count >= 2:
-            suspicious["injection_capable"] = True
-        if hooking_count >= 1:
-            suspicious["hooking_capable"] = True
-        
-        suspicious["apis"] = all_apis
+        for dll, funcs in imports.items():
+            dll_lower = dll.lower()
+            if dll_lower in ImportAnalyzer.DANGEROUS_APIS:
+                for func in funcs:
+                    if func in ImportAnalyzer.DANGEROUS_APIS[dll_lower]:
+                        suspicious.append(f"{dll}!{func}")
         
         return suspicious
     
     @staticmethod
-    def analyze_dll_dependencies(imports: Dict[str, List[str]]) -> Dict[str, any]:
-        """Analyze DLL dependencies and their purpose"""
-        analysis = {
-            "dll_count": len(imports),
-            "system_dlls": [],
-            "suspicious_dlls": [],
-            "custom_dlls": [],
-            "purpose": {}
-        }
+    def analyze_dll_dependencies(imports: Dict[str, List[str]]) -> Dict[str, int]:
+        """Analyze DLL usage"""
+        dll_stats = {}
         
-        system_dlls = {"kernel32", "ntdll", "user32", "gdi32", "advapi32", "shell32"}
-        suspicious_patterns = {"ws2_32", "wininet", "urlmon"}
+        for dll in imports:
+            dll_stats[dll] = len(imports[dll])
         
-        for dll in imports.keys():
-            dll_name = dll.lower().split('.')[0]
-            
-            if dll_name in system_dlls:
-                analysis["system_dlls"].append(dll)
-            elif any(pattern in dll_name for pattern in suspicious_patterns):
-                analysis["suspicious_dlls"].append(dll)
-            else:
-                analysis["custom_dlls"].append(dll)
-        
-        return analysis
+        return dll_stats
 
 
 class MalwareBehaviorAnalyzer:
-    """Analyze import patterns for malware behavior indicators"""
+    """Analyze imports for malware behaviors"""
 
-    BEHAVIORS = {
-        "worm": ["SendMessageA", "WM_QUIT", "CloseHandle", "GetWindowsDirectory"],
-        "ransomware": ["CryptEncrypt", "GetLogicalDrives", "FindFirstFileA", "DeleteFileA"],
-        "spyware": ["GetClipboardData", "GetKeyboardState", "mouse_event"],
-        "rootkit": ["NtSetInformationFile", "NtQuerySystemInformation"],
-        "trojan": ["WinExec", "ShellExecute", "LoadLibrary"],
+    MALWARE_SIGNATURES = {
+        "ransomware": ["CryptEncrypt", "CryptDecrypt", "SetFilePointer"],
+        "spyware": ["GetWindowText", "SetWindowsHookEx", "GetClipboardData"],
+        "trojan": ["ShellExecute", "CreateProcessA", "WinExec"],
+        "worm": ["InternetOpen", "InternetConnect", "HttpSendRequest"],
+        "rootkit": ["SetWindowsHookEx", "CreateRemoteThread", "WriteProcessMemory"],
     }
     
     @staticmethod
-    def analyze_behavior(imports: Dict[str, List[str]]) -> Dict[str, any]:
-        """Determine likely malware behavior based on imports"""
-        all_apis = []
-        for apis in imports.values():
-            all_apis.extend([api.lower() for api in apis])
-        
+    def analyze_behavior(imports: Dict[str, List[str]]) -> Dict[str, Dict]:
+        """Detect potential malware behaviors"""
         behaviors = {}
-        for behavior_type, indicators in MalwareBehaviorAnalyzer.BEHAVIORS.items():
-            matches = sum(1 for ind in indicators if any(ind.lower() in api for api in all_apis))
-            if matches > 0:
-                behaviors[behavior_type] = {
-                    "score": matches / len(indicators),
+        
+        all_imports = [func for dll_imports in imports.values() for func in dll_imports]
+        
+        for malware_type, indicators in MalwareBehaviorAnalyzer.MALWARE_SIGNATURES.items():
+            matches = [ind for ind in indicators if ind in all_imports]
+            if matches:
+                behaviors[malware_type] = {
+                    "confidence": len(matches) / len(indicators),
                     "matches": matches
                 }
         
