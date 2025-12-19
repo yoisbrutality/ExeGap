@@ -3,8 +3,8 @@ ExeGap Version Information and Metadata
 """
 
 __title__ = "ExeGap"
-__version__ = "3.0.0"
-__author__ = "ExeGap Development Team"
+__version__ = "3.0.1"
+__author__ = "brutality"
 __license__ = "Personal Rights"
 __description__ = "Advanced PE Binary Analysis & Decompilation Suite"
 __url__ = "https://github.com/yoisbrutality/ExeGap"
@@ -14,7 +14,7 @@ VERSION_INFO = {
     "minor": 0,
     "patch": 0,
     "build": "professional",
-    "release_date": "2024",
+    "release_date": "2025",
 }
 
 FEATURES = [
@@ -40,9 +40,10 @@ CAPABILITIES = {
     "string_analysis": "ASCII and Unicode string extraction with intelligence",
 }
 
-print(f"""
+if __name__ == "__main__":
+    print(f"""
 ╔═════════════════════════════════════════════════════════════════════╗
-║                    EXEGAP {__version__}                        ║
-║         Advanced PE Binary Analysis & Decompilation Suite         ║
+║                    EXEGAP {__version__}                             ║
+║         Advanced PE Binary Analysis & Decompilation Suite           ║
 ╚═════════════════════════════════════════════════════════════════════╝
 """)
