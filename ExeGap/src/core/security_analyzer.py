@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""
-Advanced Security Analysis Module
-Detects malware signatures, packing, API hooks, and suspicious behavior patterns
-Integrates api_hook_detector.py and config extraction capabilities
-"""
+
 import struct
 import logging
 import json
+import math
 from typing import Dict, List, Any, Tuple, Set, Optional
 from collections import defaultdict, Counter
 import re
@@ -53,7 +50,7 @@ class APIHookDetector:
             return findings
         
         for section in pe.sections:
-            sec_name = section.Name.decode('utf-8', errors='ignore').strip('\x00')
+            sec_name = section.Name.decode('utf-8', errors='ignore').rstrip('\x00')
             if sec_name != section_name:
                 continue
             
@@ -96,12 +93,11 @@ class APIHookDetector:
         """Detect sequences of imports that suggest hooking"""
         chains = []
         
-        for dll_imports in imports.values():
-            for i, func1 in enumerate(dll_imports):
-                for func2 in dll_imports[i+1:]:
-                    for sus_pair in APIHookDetector.SUSPICIOUS_SEQUENCES:
-                        if (func1 == sus_pair[0] and func2 == sus_pair[1]):
-                            chains.append((func1, func2))
+        all_imports = [func for dll_imports in imports.values() for func in dll_imports]
+        
+        for sus_pair in APIHookDetector.SUSPICIOUS_SEQUENCES:
+            if sus_pair[0] in all_imports and sus_pair[1] in all_imports:
+                chains.append(sus_pair)
         
         return chains
 
@@ -117,26 +113,37 @@ class SecurityAnalyzer:
             "imports": ["CryptEncrypt", "CryptDecrypt", "SetFilePointer"],
             "strings": ["*.encrypted", "bitcoin", "wallet", "payment"],
             "behavior": "File encryption and extortion",
+            "weight": 40,
         },
         "spyware": {
             "imports": ["GetWindowText", "SetWindowsHookEx", "GetClipboardData"],
             "strings": ["hwnd", "keyboard", "monitor", "screen"],
             "behavior": "Keylogging and screen capture",
+            "weight": 30,
         },
         "trojan": {
             "imports": ["ShellExecute", "CreateProcess", "WinExec"],
             "strings": ["cmd.exe", "powershell.exe", "system32"],
             "behavior": "Command execution",
+            "weight": 35,
         },
         "worm": {
             "imports": ["InternetOpen", "InternetConnect", "HttpSendRequest"],
             "strings": ["http://", "https://", ".exe"],
             "behavior": "Network propagation",
+            "weight": 25,
         },
         "rootkit": {
             "imports": ["SetWindowsHookEx", "CreateRemoteThread", "WriteProcessMemory"],
             "strings": ["kernel32", "ntdll", "driver"],
             "behavior": "Low-level system access",
+            "weight": 50,
+        },
+        "miner": {
+            "imports": ["CryptAcquireContext", "InternetOpenUrl"],
+            "strings": ["stratum", "pool", "bitcoin", "ethereum"],
+            "behavior": "Cryptocurrency mining",
+            "weight": 45,
         },
     }
 
@@ -165,123 +172,110 @@ class SecurityAnalyzer:
         self.findings = {}
     
     def calculate_entropy(self, data: bytes) -> float:
-        """Calculate Shannon entropy of data"""
+        """Calculate Shannon entropy correctly"""
         if not data:
             return 0.0
         
+        freq = [0] * 256
+        for byte in data:
+            freq[byte] += 1
+        
         entropy = 0.0
-        frequency = Counter(data)
+        data_len = len(data)
+        for count in freq:
+            if count == 0:
+                continue
+            p = count / data_len
+            entropy -= p * math.log2(p)
         
-        for count in frequency.values():
-            probability = count / len(data)
-            entropy -= probability * (len(bin(probability)) - 2)
-        
-        return round(entropy, 3)
+        return entropy
     
     def detect_packing(self) -> Dict[str, Any]:
-        """Detect common packing techniques"""
-        findings = {
-            "packed": False,
-            "suspicious_sections": [],
-            "entropy_analysis": {},
-            "known_packers": [],
+        """Detect if binary is packed"""
+        packing = {
+            "is_packed": False,
+            "indicators": [],
+            "entropy": 0.0,
+        }
+        
+        if not self.pe:
+            return packing
+        
+        try:
+            total_entropy = 0.0
+            section_count = len(self.pe.sections)
+            for section in self.pe.sections:
+                data = self.pe.get_data(section.VirtualAddress, section.SizeOfRawData)
+                entropy = self.calculate_entropy(data)
+                total_entropy += entropy
+                if entropy > 6.5:
+                    packing["indicators"].append(f"High entropy in {section.Name.decode().rstrip('\x00')}: {entropy}")
+            
+            avg_entropy = total_entropy / max(1, section_count)
+            packing["entropy"] = avg_entropy
+            if avg_entropy > 6.0:
+                packing["is_packed"] = True
+                packing["indicators"].append("High average entropy")
+            
+            if section_count < 3:
+                packing["indicators"].append("Few sections")
+            
+            packing["is_packed"] = len(packing["indicators"]) > 1
+        except Exception as e:
+            logger.debug(f"Packing detection error: {e}")
+        
+        return packing
+    
+    def detect_injection_imports(self) -> Dict[str, Any]:
+        """Detect code injection capabilities"""
+        injection = {
+            "capable": False,
+            "matched_imports": [],
             "risk_level": "low",
         }
         
-        if not self.pe or not hasattr(self.pe, 'sections'):
-            return findings
-        
-        high_entropy_count = 0
-        for section in self.pe.sections:
-            section_name = section.Name.decode('utf-8', errors='ignore').strip('\x00')
-            section_data = self.pe.get_data(section.VirtualAddress, section.SizeOfRawData)
-            entropy = self.calculate_entropy(section_data)
-            
-            findings["entropy_analysis"][section_name] = entropy
-
-            if entropy > 7.5:
-                high_entropy_count += 1
-                findings["suspicious_sections"].append({
-                    "name": section_name,
-                    "entropy": entropy,
-                    "reason": "High entropy indicates compression or encryption"
-                })
-
-            packer = self._identify_packer(section_name, entropy)
-            if packer:
-                findings["known_packers"].append(packer)
-        
-        if high_entropy_count > 2 or findings["known_packers"]:
-            findings["packed"] = True
-            findings["risk_level"] = "high"
-        elif high_entropy_count > 0:
-            findings["risk_level"] = "medium"
-        
-        return findings
-    
-    def _identify_packer(self, section_name: str, entropy: float) -> Optional[str]:
-        """Identify known packers by section name"""
-        packer_signatures = {
-            ".UPX": "UPX",
-            ".packed": "Generic Packer",
-            ".rsrc": "Resource Section",
-            ".reloc": "Relocation",
-            ".text": "Code Section",
-            ".data": "Data Section",
-            "ASLR": "ASLR Protection",
-            ".enigma": "Enigma Protector",
-            ".aspack": "ASPack",
-            ".therawcode": "The Ghostware",
-        }
-        
-        for sig, packer_name in packer_signatures.items():
-            if sig.lower() in section_name.lower():
-                return {"name": packer_name, "entropy": entropy}
-        
-        return None
-    
-    def detect_injection_imports(self) -> Dict[str, List[str]]:
-        """Detect process injection capabilities"""
-        findings = {
-            "has_injection_capability": False,
-            "injection_imports": [],
-            "risk_score": 0,
-        }
-        
         if not self.pe or not hasattr(self.pe, 'DIRECTORY_ENTRY_IMPORT'):
-            return findings
+            return injection
         
-        found_imports = []
+        matched = []
         for dll in self.pe.DIRECTORY_ENTRY_IMPORT:
             for func in dll.imports:
                 func_name = func.name.decode('utf-8', errors='ignore') if func.name else ""
                 if func_name in self.INJECTION_IMPORTS:
-                    found_imports.append(func_name)
+                    matched.append(func_name)
         
-        findings["injection_imports"] = found_imports
-        findings["has_injection_capability"] = len(found_imports) > 3
-        findings["risk_score"] = min(100, len(found_imports) * 15)
+        injection["matched_imports"] = matched
+        injection["capable"] = len(matched) > 2
+        if len(matched) > 4:
+            injection["risk_level"] = "high"
+        elif len(matched) > 2:
+            injection["risk_level"] = "medium"
         
-        return findings
+        return injection
     
-    def detect_api_hooks(self) -> Dict[str, Any]:
-        """Detect API hooks using integrated detector"""
+    def analyze_hooks(self) -> Dict[str, Any]:
+        """Analyze for API hooks"""
+        hooks = {
+            "detected": False,
+            "patterns": [],
+            "chains": [],
+        }
+        
         if not self.pe:
-            return {"hooks_detected": False}
+            return hooks
         
-        hooks = APIHookDetector.detect_hooks_in_section(self.pe, ".text")
+        text_hooks = APIHookDetector.detect_hooks_in_section(self.pe, ".text")
+        hooks["patterns"] = text_hooks["patterns_found"]
         
-        if self.pe and hasattr(self.pe, 'DIRECTORY_ENTRY_IMPORT'):
-            imports = {}
+        imports = {}
+        if hasattr(self.pe, 'DIRECTORY_ENTRY_IMPORT'):
             for dll in self.pe.DIRECTORY_ENTRY_IMPORT:
-                dll_name = dll.dll.decode('utf-8', errors='ignore')
-                imports[dll_name] = []
-                for func in dll.imports:
-                    func_name = func.name.decode('utf-8', errors='ignore') if func.name else f"Ordinal_{func.ordinal}"
-                    imports[dll_name].append(func_name)
-            
-            hook_chains = APIHookDetector.detect_hook_chains(imports)
-            hooks["suspicious_chains"] = hook_chains
+                dll_name = dll.dll.decode('utf-8', errors='ignore').rstrip('\x00')
+                imports[dll_name] = [func.name.decode('utf-8', errors='ignore').rstrip('\x00') if func.name else "" for func in dll.imports]
+        
+        hooks["chains"] = APIHookDetector.detect_hook_chains(imports)
+        
+        hooks["detected"] = len(hooks["patterns"]) > 0 or len(hooks["chains"]) > 0
         
         return hooks
     
@@ -302,15 +296,13 @@ class SecurityAnalyzer:
             for section in self.pe.sections:
                 try:
                     data = self.pe.get_data(section.VirtualAddress, section.SizeOfRawData)
+                    text = data.decode('utf-8', errors='ignore')
 
-                    urls = re.findall(r'https?://[^\x00\s<>"{}|\\^`\[\]]+', data.decode('utf-8', errors='ignore'))
-                    suspicious["urls"].extend(urls)
-
-                    emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', data.decode('utf-8', errors='ignore'))
-                    suspicious["emails"].extend(emails)
-
-                    registry = re.findall(r'HKEY_[A-Z_]+', data.decode('utf-8', errors='ignore'))
-                    suspicious["registry_keys"].extend(registry)
+                    suspicious["urls"].extend(re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', text))
+                    suspicious["emails"].extend(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', text))
+                    suspicious["registry_keys"].extend(re.findall(r'HKEY_[A-Z_]+\\[^\x00]+', text))
+                    suspicious["file_paths"].extend(re.findall(r'(?:[A-Z]:\\|/)[\w\\\-_.]+\.\w{2,4}', text))
+                    suspicious["command_patterns"].extend(re.findall(r'(cmd|powershell)\.exe /c .+', text, re.IGNORECASE))
                 except:
                     pass
         except Exception as e:
@@ -331,35 +323,36 @@ class SecurityAnalyzer:
             return risk_analysis
         
         dangerous_apis = {
-            "WriteProcessMemory": "Can write to other processes",
-            "CreateRemoteThread": "Can execute code in other processes",
-            "VirtualAllocEx": "Can allocate memory in other processes",
-            "SetWindowsHookEx": "Can inject DLLs via hooks",
-            "GetWindowText": "Can capture window content",
-            "GetClipboardData": "Can read clipboard",
-            "InternetOpen": "Network access",
-            "CryptEncrypt": "Encryption capability",
-            "CryptDecrypt": "Decryption capability",
-            "ShellExecute": "Execute external programs",
-            "WinExec": "Execute programs (legacy)",
+            "WriteProcessMemory": {"desc": "Can write to other processes", "weight": 20},
+            "CreateRemoteThread": {"desc": "Can execute code in other processes", "weight": 25},
+            "VirtualAllocEx": {"desc": "Can allocate memory in other processes", "weight": 15},
+            "SetWindowsHookEx": {"desc": "Can inject DLLs via hooks", "weight": 20},
+            "GetWindowText": {"desc": "Can capture window content", "weight": 10},
+            "GetClipboardData": {"desc": "Can read clipboard", "weight": 10},
+            "InternetOpen": {"desc": "Network access", "weight": 5},
+            "CryptEncrypt": {"desc": "Encryption capability", "weight": 15},
+            "CryptDecrypt": {"desc": "Decryption capability", "weight": 15},
+            "ShellExecute": {"desc": "Execute external programs", "weight": 10},
+            "WinExec": {"desc": "Execute programs (legacy)", "weight": 10},
         }
         
         total = 0
-        risky_count = 0
+        score = 0
         
         for dll in self.pe.DIRECTORY_ENTRY_IMPORT:
             for func in dll.imports:
                 total += 1
                 func_name = func.name.decode('utf-8', errors='ignore') if func.name else ""
                 if func_name in dangerous_apis:
-                    risky_count += 1
+                    api_info = dangerous_apis[func_name]
                     risk_analysis["dangerous_imports"].append({
                         "api": func_name,
-                        "risk": dangerous_apis[func_name]
+                        "risk": api_info["desc"]
                     })
+                    score += api_info["weight"]
         
         risk_analysis["total_imports"] = total
-        risk_analysis["risk_score"] = min(100, (risky_count / max(1, total)) * 100)
+        risk_analysis["risk_score"] = min(100, score)
         
         if risk_analysis["risk_score"] > 75:
             risk_analysis["overall_risk"] = "critical"
@@ -374,15 +367,16 @@ class SecurityAnalyzer:
         """Classify potential malware behavior"""
         detections = []
         
+        all_imports = [func for dll_imports in imports.values() for func in dll_imports]
+        
         for malware_type, signature in self.MALWARE_SIGNATURES.items():
             confidence = 0
             matched_features = []
 
             for required_import in signature["imports"]:
-                for dll_imports in imports.values():
-                    if required_import in dll_imports:
-                        confidence += 30
-                        matched_features.append(f"Import: {required_import}")
+                if required_import in all_imports:
+                    confidence += signature["weight"] / len(signature["imports"])
+                    matched_features.append(f"Import: {required_import}")
 
             if strings:
                 for pattern in signature["strings"]:
@@ -406,9 +400,20 @@ class SecurityAnalyzer:
         report = {
             "packing_analysis": self.detect_packing(),
             "injection_analysis": self.detect_injection_imports(),
+            "hooks_analysis": self.analyze_hooks(),
             "import_risk": self.analyze_imports_risk(),
+            "suspicious_strings": self.extract_suspicious_strings(),
             "timestamp": __import__('datetime').datetime.now().isoformat(),
         }
+
+        imports = {}
+        if hasattr(self.pe, 'DIRECTORY_ENTRY_IMPORT'):
+            for dll in self.pe.DIRECTORY_ENTRY_IMPORT:
+                dll_name = dll.dll.decode('utf-8', errors='ignore').rstrip('\x00')
+                imports[dll_name] = [func.name.decode('utf-8', errors='ignore').rstrip('\x00') if func.name else "" for func in dll.imports]
+        
+        strings = []
+        report["malware_classification"] = self.classify_malware_behavior(imports, strings)
 
         if binary_data:
             try:
