@@ -2,8 +2,8 @@
 ExeGap Core Analysis Engine
 Professional binary analysis and decompilation toolkit
 """
-__version__ = "3.0.0"
-__author__ = "yois"
+__version__ = "3.0.1"
+__author__ = "Brutality"
 __description__ = "Advanced PE Binary Analysis & Extraction Suite"
 
 from .pe_analyzer import PEAnalyzer
