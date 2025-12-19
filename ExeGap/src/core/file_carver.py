@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-Advanced File Carving and Signature Detection
-Extract embedded files from binary data using pattern matching
-Consolidates functionality from extractor.py and advanced carving
-"""
+
 import os
 import struct
 import logging
@@ -11,6 +7,8 @@ import pefile
 from typing import List, Tuple, Dict, Any, BinaryIO
 from dataclasses import dataclass
 from pathlib import Path
+import re
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +65,8 @@ class FileCarver:
         b"SQLite format 3": (".db", "SQLite Database", True),
         b"\x4D\x53\x43\x46": (".cab", "Cabinet Archive", True),
         b"\x50\x4B\x03\x04": (".apk", "Android Package", True),
+        b"\x50\x5F\x27\xA8\x89": (".tar", "TAR Archive", True),
+        b"\xFF\xD8\xFF\xDB": (".jpg", "JPEG with Quantization", False),
     }
     
     def __init__(self, data: bytes, output_dir: str = "carved_files"):
@@ -120,11 +120,10 @@ class FileCarver:
                                         }
                                         resources["resources"].append(resource_info)
 
-                                        if hasattr(self, 'output_dir'):
-                                            out_path = os.path.join(self.output_dir, resource_name)
-                                            with open(out_path, 'wb') as f:
-                                                f.write(data)
-                                            resources["extracted"] += 1
+                                        out_path = os.path.join(self.output_dir, resource_name)
+                                        with open(out_path, 'wb') as f:
+                                            f.write(data)
+                                        resources["extracted"] += 1
                                         
                                         res_count += 1
                                     except Exception as e:
@@ -137,30 +136,32 @@ class FileCarver:
         resources["total"] = res_count
         return resources
     
-    def carve_all(self) -> List[CarveResult]:
+    def carve_all(self, overlap: bool = False) -> List[CarveResult]:
         """Carve all embedded files from data"""
         logger.info("Starting file carving analysis...")
+        self.results = []
         
-        for signature, (ext, name, is_fixed) in self.SIGNATURES.items():
-            offset = 0
+        offsets = set()
+        for sig, (ext, name, _) in self.SIGNATURES.items():
+            offset = -1
             while True:
-                offset = self.data.find(signature, offset)
+                offset = self.data.find(sig, offset + 1)
                 if offset == -1:
                     break
-                
+                if offset in offsets and not overlap:
+                    continue
+                offsets.add(offset)
                 result = CarveResult(
                     offset=offset,
-                    signature=signature,
+                    signature=sig,
                     extension=ext,
                     name=name,
-                    confidence=0.95 if is_fixed else 0.75
+                    confidence=1.0 if len(sig) > 4 else 0.8
                 )
                 self.results.append(result)
-                logger.debug(f"Found {name} at offset {hex(offset)}")
-                
-                offset += len(signature)
         
-        logger.info(f"Carved {len(self.results)} potential files")
+        self.results.sort(key=lambda r: r.offset)
+        logger.info(f"Found {len(self.results)} potential files")
         return self.results
     
     def extract_files(self, min_confidence: float = 0.7) -> Dict[str, str]:
@@ -240,37 +241,35 @@ class StringExtractor:
     def extract_unicode(self, min_length: int = 4) -> List[str]:
         """Extract Unicode strings"""
         unicode_strings = []
+        current_string = ''
         i = 0
         
         while i < len(self.data) - 1:
-            if self.data[i:i+2] == b'\x00\x00':
+            byte_pair = self.data[i:i+2]
+            if byte_pair == b'\x00\x00':
+                if len(current_string) >= min_length:
+                    unicode_strings.append(current_string)
+                current_string = ''
                 i += 2
                 continue
             
             try:
-                char = self.data[i:i+2].decode('utf-16-le')
-                if ord(char) >= 32:
-                    current_string = char
-                    i += 2
-                    
-                    while i < len(self.data) - 1:
-                        byte_pair = self.data[i:i+2]
-                        if byte_pair == b'\x00\x00':
-                            break
-                        try:
-                            next_char = byte_pair.decode('utf-16-le')
-                            if ord(next_char) >= 32:
-                                current_string += next_char
-                            i += 2
-                        except:
-                            break
-                    
+                char = byte_pair.decode('utf-16-le')
+                if 32 <= ord(char) <= 126:
+                    current_string += char
+                else:
                     if len(current_string) >= min_length:
                         unicode_strings.append(current_string)
-                else:
-                    i += 2
-            except:
-                i += 2
+                    current_string = ''
+            except UnicodeDecodeError:
+                if len(current_string) >= min_length:
+                    unicode_strings.append(current_string)
+                current_string = ''
+            
+            i += 2
+        
+        if len(current_string) >= min_length:
+            unicode_strings.append(current_string)
         
         self.strings.extend(unicode_strings)
         return unicode_strings
@@ -287,16 +286,19 @@ class StringExtractor:
         }
         
         for string in self.strings:
-            if any(proto in string for proto in ['http://', 'https://', 'ftp://']):
-                analysis["urls"].append(string)
+            urls = re.findall(r'https?://[^\s<>"{}|\\^`\[\]]+', string)
+            if urls:
+                analysis["urls"].extend(urls)
 
-            if self._is_ip(string):
-                analysis["ips"].append(string)
+            ips = [s for s in re.findall(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b', string) if self._is_ip(s)]
+            if ips:
+                analysis["ips"].extend(ips)
 
-            if '@' in string and '.' in string:
-                analysis["emails"].append(string)
+            emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', string)
+            if emails:
+                analysis["emails"].extend(emails)
 
-            if any(string.startswith(p) for p in ['C:\\', 'HKEY_', 'System32']):
+            if re.match(r'(?:[A-Z]:\\|/)[\w\\\-_.]+', string):
                 analysis["paths"].append(string)
 
             if string.startswith('HKEY_'):
@@ -305,12 +307,14 @@ class StringExtractor:
         return analysis
     
     def _is_ip(self, string: str) -> bool:
-        """Check if string is IP address"""
+        """Check if string is valid IP address"""
         parts = string.split('.')
         if len(parts) != 4:
             return False
-        
-        return all(part.isdigit() and 0 <= int(part) <= 255 for part in parts)
+        try:
+            return all(0 <= int(part) <= 255 for part in parts)
+        except ValueError:
+            return False
 
 
 if __name__ == "__main__":
